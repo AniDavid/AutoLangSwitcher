@@ -55,6 +55,8 @@ If you clicked **No** at the admin prompt, it won't be able to switch programs t
 
 ## macOS
 
+> **Note:** I don't have a Mac, so the macOS version has not been tested. If you find a problem, please [open an issue](https://github.com/AniDavid/AutoLangSwitcher/issues).
+
 Requires macOS 11 (Big Sur) or later.
 
 **Install**
