@@ -2,6 +2,8 @@
 
 *Formerly called Keyboard Memory. Upgrading keeps your remembered programs and your start-at-login setting.*
 
+**Windows: [Download the installer](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi)** · macOS: build from source (see below)
+
 ## Why
 
 If you write in more than one language, you probably use a different keyboard language in different programs: Hebrew in WhatsApp or Word, English in your code editor or terminal. Windows and macOS both use one keyboard language for all programs by default. Every time you switch programs you have to check the language and switch it, and you often only notice after typing a line of gibberish.
@@ -9,6 +11,18 @@ If you write in more than one language, you probably use a different keyboard la
 AutoLangSwitcher fixes this. It runs quietly in the background and remembers the last keyboard language you used in each program. When you switch back to that program, it switches the keyboard back for you.
 
 It does not watch what you type or fix text typed in the wrong language. It only restores each program's language.
+
+## בעברית
+
+<div dir="rtl">
+
+כותבים גם בעברית וגם באנגלית? AutoLangSwitcher זוכרת את שפת המקלדת האחרונה שבחרתם בכל תוכנה, ומחזירה אותה אוטומטית כשאתם חוזרים לאותה תוכנה. למשל, עברית בוואטסאפ ובוורד, ואנגלית בעורך הקוד ובטרמינל. בלי להקליד שורה של ג'יבריש ולגלות רק אחר כך שהשפה לא נכונה.
+
+אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. התוכנה לא קוראת את מה שאתם מקלידים.
+
+**להורדה ל-Windows:** [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi). התוכנה עדיין לא חתומה דיגיטלית, ולכן Windows תציג אזהרה. לחצו על **More info** ואז על **Run anyway**.
+
+</div>
 
 ## How to use
 
@@ -32,7 +46,7 @@ It remembers by program, not by window or tab. All browser tabs share one langua
 4. Click **Yes** when Windows asks for admin rights. AutoLangSwitcher needs them to switch the keyboard in programs that run as administrator. The first time, this also moves an older Keyboard Memory's **Start with Windows** setting over.
 5. Right-click the blue keyboard icon with the green arrow in the tray and tick **Start with Windows**.
 
-**Or use the installer:** run `AutoLangSwitcher.msi`. It installs to `C:\Program Files\AutoLangSwitcher`, adds a Start menu shortcut and starts the app. Uninstall it from **Settings → Apps**; this also turns off **Start with Windows**. Your remembered programs in `%APPDATA%` are kept. The installer isn't digitally signed, so Windows shows a SmartScreen warning: click **More info → Run anyway**.
+**Or use the installer:** download [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi) from the [latest release](https://github.com/AniDavid/AutoLangSwitcher/releases/latest) and run it. It installs to `C:\Program Files\AutoLangSwitcher`, adds a Start menu shortcut and starts the app. Uninstall it from **Settings → Apps**; this also turns off **Start with Windows**. Your remembered programs in `%APPDATA%` are kept. The installer isn't digitally signed, so Windows shows a SmartScreen warning: click **More info → Run anyway**.
 
 Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .NET Framework 4.8 version (nothing to install) and a .NET 10 version (needs the .NET 10 Desktop Runtime).
 
