@@ -1,7 +1,5 @@
 # AutoLangSwitcher
 
-*Formerly called Keyboard Memory. Upgrading keeps your remembered programs and your start-at-login setting.*
-
 **Windows: [Download the installer](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi)** · macOS: build from source (see below)
 
 ## Why
@@ -41,10 +39,9 @@ It remembers by program, not by window or tab. All browser tabs share one langua
 **Install**
 
 1. Unzip and copy the `Windows` folder somewhere you'll keep it, for example `C:\Tools\AutoLangSwitcher`.
-2. If an older Keyboard Memory is running, exit it from its tray menu.
-3. Double-click `build.bat`. It builds `AutoLangSwitcher.exe` with tools already included in Windows and starts it. Nothing extra needs to be installed.
-4. Click **Yes** when Windows asks for admin rights. AutoLangSwitcher needs them to switch the keyboard in programs that run as administrator. The first time, this also moves an older Keyboard Memory's **Start with Windows** setting over.
-5. Right-click the blue keyboard icon with the green arrow in the tray and tick **Start with Windows**.
+2. Double-click `build.bat`. It builds `AutoLangSwitcher.exe` with tools already included in Windows and starts it. Nothing extra needs to be installed.
+3. Click **Yes** when Windows asks for admin rights. AutoLangSwitcher needs them to switch the keyboard in programs that run as administrator.
+4. Right-click the blue keyboard icon with the green arrow in the tray and tick **Start with Windows**.
 
 **Or use the installer:** download [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi) from the [latest release](https://github.com/AniDavid/AutoLangSwitcher/releases/latest) and run it. It installs to `C:\Program Files\AutoLangSwitcher`, adds a Start menu shortcut and starts the app. Uninstall it from **Settings → Apps**; this also turns off **Start with Windows**. Your remembered programs in `%APPDATA%` are kept. The installer isn't digitally signed, so Windows shows a SmartScreen warning: click **More info → Run anyway**.
 
@@ -63,7 +60,7 @@ Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .N
 | **About AutoLangSwitcher** | Shows the version and credits. |
 | **Exit** | Closes AutoLangSwitcher. |
 
-If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu. Settings are saved in `%APPDATA%\AutoLangSwitcher\layouts.txt`. An older Keyboard Memory's list in `%APPDATA%\KeyboardMemory` is read until the first save and is never changed.
+If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu. Settings are saved in `%APPDATA%\AutoLangSwitcher\layouts.txt`.
 
 ---
 
@@ -81,7 +78,7 @@ Requires macOS 11 (Big Sur) or later.
    ./build.sh
    ```
    If it says the Swift compiler is missing, run `xcode-select --install`, accept the download, and run `./build.sh` again.
-3. The app is installed in your Applications folder (`~/Applications`) and starts automatically. A keyboard icon with a small arrow badge appears in the menu bar. If an older Keyboard Memory is installed, it is closed and removed. Its remembered apps and **Start at Login** setting carry over.
+3. The app is installed in your Applications folder (`~/Applications`) and starts automatically. A keyboard icon with a small arrow badge appears in the menu bar.
 4. Click the icon and choose **Start at Login**.
 
 No special permissions are needed.
