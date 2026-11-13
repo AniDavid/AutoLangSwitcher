@@ -1,0 +1,12 @@
+# Build output (publish binaries via GitHub Releases instead)
+bin/
+obj/
+.vs/
+*.user
+*.exe
+*.msi
+*.zip
+# macOS build output
+macOS/build/
+*.app/
+.DS_Store

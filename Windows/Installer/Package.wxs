@@ -1,0 +1,55 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!-- Version is read from the exe (AssemblyVersion in Program.cs). Raise it for every release,
+       or the new MSI will not replace the old one. -->
+  <!-- Never change UpgradeCode: it is how Windows recognises an older AutoLangSwitcher to upgrade. -->
+  <Package Name="AutoLangSwitcher"
+           Manufacturer="AutoLangSwitcher"
+           Version="!(bind.FileVersion.AppExe)"
+           UpgradeCode="04808509-15E3-4807-85D2-D2AA18E357A6"
+           Scope="perMachine">
+
+    <!-- AllowSameVersionUpgrades: a rebuild with an unchanged version replaces the installed copy
+         instead of being added next to it (and keeping the old exe, since equal file versions are not overwritten). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of AutoLangSwitcher is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="AutoLangSwitcher" />
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <Component Directory="INSTALLFOLDER">
+        <File Id="AppExe" Source="$(var.AutoLangSwitcher.TargetPath)" KeyPath="yes" />
+      </Component>
+      <!-- Shortcuts need their own component with a registry key path (Windows Installer rule ICE43). -->
+      <Component Directory="ProgramMenuFolder">
+        <Shortcut Id="StartMenuShortcut" Name="AutoLangSwitcher" Target="[INSTALLFOLDER]AutoLangSwitcher.exe" WorkingDirectory="INSTALLFOLDER"
+                  Description="Remembers the keyboard language of each program" />
+        <RegistryValue Root="HKCU" Key="Software\AutoLangSwitcher" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Feature>
+
+    <!-- A running copy locks the exe; close it before files are replaced or removed. -->
+    <util:CloseApplication Id="CloseRunningApp" Target="AutoLangSwitcher.exe"
+                           CloseMessage="yes" TerminateProcess="1" RebootPrompt="no" />
+
+    <!-- Uninstall (not upgrade): remove the "Start with Windows" task the app created. -->
+    <SetProperty Id="RemoveStartupTask" Sequence="execute" Before="RemoveStartupTask"
+                 Value="&quot;[System64Folder]schtasks.exe&quot; /delete /tn AutoLangSwitcher /f" />
+    <CustomAction Id="RemoveStartupTask" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- Start the app when installation finishes. -->
+    <CustomAction Id="LaunchApp" FileRef="AppExe" ExeCommand="" Execute="immediate" Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RemoveStartupTask" Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

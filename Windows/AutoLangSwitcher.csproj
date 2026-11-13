@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- net48 ships with Windows (no install, same as build.bat); net10.0 needs the .NET 10 Desktop Runtime. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFrameworks>net48;net10.0-windows</TargetFrameworks>
+    <AssemblyName>AutoLangSwitcher</AssemblyName>
+    <RootNamespace>AutoLangSwitcher</RootNamespace>
+    <!-- build.bat uses the C# 5 compiler that ships with Windows; keep VS on the same language. -->
+    <LangVersion>5</LangVersion>
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+    <!-- Version and title come from the attributes in Program.cs, shared with build.bat.
+         Only those are switched off; the rest (e.g. the Windows-only platform marker) is still generated. -->
+    <GenerateAssemblyVersionAttribute>false</GenerateAssemblyVersionAttribute>
+    <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+    <GenerateAssemblyInformationalVersionAttribute>false</GenerateAssemblyInformationalVersionAttribute>
+    <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
+    <!-- The installer is its own project; keep its files out of the app. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Installer\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,19 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <!-- Builds AutoLangSwitcher.msi from the net48 build (runs on any Windows 10/11 with nothing to install). -->
+  <PropertyGroup>
+    <OutputName>AutoLangSwitcher</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <!-- ICE61 warns about AllowSameVersionUpgrades in Package.wxs, which is intended. -->
+    <SuppressIces>ICE61</SuppressIces>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AutoLangSwitcher.csproj" SetTargetFramework="TargetFramework=net48" />
+  </ItemGroup>
+
+</Project>
