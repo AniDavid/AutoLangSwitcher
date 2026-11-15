@@ -17,4 +17,4 @@ jobs:
         working-directory: macOS
         run: |
           swiftc --version
-          swiftc -O -o AutoLangSwitcher AutoLangSwitcher.swift -framework Cocoa -framework Carbon
+          swiftc -O -parse-as-library -o AutoLangSwitcher AutoLangSwitcher.swift -framework Cocoa -framework Carbon

@@ -15,7 +15,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
 echo "Compiling..."
-swiftc -O -o "$APP/Contents/MacOS/AutoLangSwitcher" AutoLangSwitcher.swift \
+swiftc -O -parse-as-library -o "$APP/Contents/MacOS/AutoLangSwitcher" AutoLangSwitcher.swift \
     -framework Cocoa -framework Carbon
 
 cat > "$APP/Contents/Info.plist" <<'EOF'

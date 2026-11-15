@@ -4,7 +4,7 @@
 // Build: ./build.sh  (needs Apple's Command Line Tools: xcode-select --install)
 // Data:  stored in the app's preferences (defaults domain com.autolangswitcher.app).
 //        Until the first change, the old com.keyboardmemory.app preferences are read instead.
-// One file on purpose: swiftc treats a single file's top-level code (bottom) as the program start.
+// One file on purpose, so build.sh stays a single swiftc call; the program starts at Main (bottom).
 
 import Cocoa
 import Carbon
@@ -695,9 +695,16 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 }
 
 // MARK: - Main
+// An explicit main actor entry point (built with -parse-as-library): newer Swift compilers
+// reject creating the @MainActor AppDelegate from plain top-level code.
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)   // menu bar only, no Dock icon
-app.run()
+@main
+struct Main {
+    @MainActor static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate                // NSApplication holds its delegate weakly
+        app.setActivationPolicy(.accessory)    // menu bar only, no Dock icon
+        withExtendedLifetime(delegate) { app.run() }
+    }
+}
