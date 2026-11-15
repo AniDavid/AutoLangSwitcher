@@ -41,7 +41,7 @@ It remembers by program, not by window or tab. All browser tabs share one langua
 1. Unzip and copy the `Windows` folder somewhere you'll keep it, for example `C:\Tools\AutoLangSwitcher`.
 2. Double-click `build.bat`. It builds `AutoLangSwitcher.exe` with tools already included in Windows and starts it. Nothing extra needs to be installed.
 3. Click **Yes** when Windows asks for admin rights. AutoLangSwitcher needs them to switch the keyboard in programs that run as administrator.
-4. Right-click the blue keyboard icon with the green arrow in the tray and tick **Start with Windows**.
+4. Double-click the blue keyboard icon with the green arrow in the tray, and on the **General** tab tick **Start with Windows**.
 
 **Or use the installer:** download [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi) from the [latest release](https://github.com/AniDavid/AutoLangSwitcher/releases/latest) and run it. It installs to `C:\Program Files\AutoLangSwitcher`, adds a Start menu shortcut and starts the app. Uninstall it from **Settings → Apps**; this also turns off **Start with Windows**. Your remembered programs in `%APPDATA%` are kept. The installer isn't digitally signed, so Windows shows a SmartScreen warning: click **More info → Run anyway**.
 
@@ -51,16 +51,22 @@ Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .N
 
 | Item | What it does |
 |---|---|
-| **Remembered apps** | Lists each program and its language. Click one to forget it. |
-| **Open settings file** | Opens the saved list in Notepad. |
+| **Settings...** | Opens the Settings window (double-clicking the icon does the same). |
 | **Pause** | Temporarily stops switching languages. |
-| **Start with Windows** | Starts AutoLangSwitcher automatically when you log in. |
-| **Forget all apps** | Clears everything it has remembered. |
-| **Open debug log** | Shows what it's doing. Useful if something doesn't work. |
 | **About AutoLangSwitcher** | Shows the version and credits. |
 | **Exit** | Closes AutoLangSwitcher. |
 
-If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu. Settings are saved in `%APPDATA%\AutoLangSwitcher\layouts.txt`.
+**Settings window**
+
+| Tab | What it shows |
+|---|---|
+| **Apps** | Each remembered program and its language. Select programs and click **Remove** to forget them, or **Remove all**. |
+| **General** | **Pause**, **Start with Windows**, and whether AutoLangSwitcher is running as administrator. |
+| **Settings file** | The saved list, exactly as stored on disk. |
+| **Log** | What AutoLangSwitcher has been doing. Useful if something doesn't work: **Copy all** and paste it into an issue. |
+| **Help** | A short user manual and how AutoLangSwitcher works. |
+
+If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu or on the **General** tab. Settings are saved in `%APPDATA%\AutoLangSwitcher\layouts.txt`.
 
 ---
 

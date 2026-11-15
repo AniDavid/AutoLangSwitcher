@@ -9,7 +9,7 @@ using System.Text;
 using System.Windows.Forms;
 
 // Tray app: watches which app has focus, remembers its layout and restores it on return.
-class AutoLangSwitcherContext : ApplicationContext
+partial class AutoLangSwitcherContext : ApplicationContext
 {
     const string Title = "AutoLangSwitcher";
     static readonly string AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -37,13 +37,14 @@ class AutoLangSwitcherContext : ApplicationContext
     readonly Timer saveTimer = new Timer();
     readonly NotifyIcon tray = new NotifyIcon();
     readonly ToolStripMenuItem pauseItem;
-    readonly ToolStripMenuItem startupItem;
-    readonly ToolStripMenuItem appsItem;
     readonly uint ownPid = (uint)Process.GetCurrentProcess().Id;
 
     IntPtr curHwnd = IntPtr.Zero;
     string curExe = null;
     int ignoreUntil = 0;   // Environment.TickCount after which recording resumes
+    IntPtr expected = IntPtr.Zero;      // layout an automatic switch asked for, checked by Poll
+    int retries = 0;                    // re-requests already made for the current switch
+    IntPtr failedLayout = IntPtr.Zero;  // layout left behind by a failed switch; not the user's choice
     bool dirty = false;
     bool paused = false;
 
@@ -53,16 +54,11 @@ class AutoLangSwitcherContext : ApplicationContext
 
         // Older versions (KeyboardMemory) started via the Run key or their own task, pointing at the
         // old exe. Replace that with this app's scheduled task (needs admin).
-        bool legacyStartup = Startup.HasLegacy;
-        if (Elevation.IsElevated && legacyStartup)
+        if (Elevation.IsElevated && Startup.HasLegacy)
             Log("move startup to scheduled task: exit code " + Startup.Enable());
 
         // Tray icon and menu
-        appsItem = new ToolStripMenuItem("Remembered apps");
-        pauseItem = new ToolStripMenuItem("Pause", null, delegate { paused = !paused; pauseItem.Checked = paused; UpdateTooltip(); });
-        startupItem = new ToolStripMenuItem("Start with Windows", null, delegate { ToggleStartup(); });
-        // Legacy entry (migrated or not) means startup is on; skip re-querying it.
-        startupItem.Checked = legacyStartup || Startup.HasTask;
+        pauseItem = new ToolStripMenuItem("Pause", null, delegate { SetPaused(!paused); });
 
         ContextMenuStrip menu = new ContextMenuStrip();
         if (!Elevation.IsElevated)
@@ -70,20 +66,17 @@ class AutoLangSwitcherContext : ApplicationContext
             menu.Items.Add(new ToolStripMenuItem("Restart as administrator", null, delegate { RestartAsAdmin(); }));
             menu.Items.Add(new ToolStripSeparator());
         }
-        menu.Items.Add(appsItem);
-        menu.Items.Add(new ToolStripMenuItem("Open settings file", null, delegate { OpenDataFile(); }));
-        menu.Items.Add(new ToolStripSeparator());
+        ToolStripMenuItem settingsItem = new ToolStripMenuItem("Settings...", null, delegate { ShowSettings(); });
+        settingsItem.Font = new Font(settingsItem.Font, FontStyle.Bold);   // default action, same as double-click
+        menu.Items.Add(settingsItem);
         menu.Items.Add(pauseItem);
-        menu.Items.Add(startupItem);
-        menu.Items.Add(new ToolStripMenuItem("Forget all apps", null, delegate { ForgetAll(); }));
-        menu.Items.Add(new ToolStripMenuItem("Open debug log", null, delegate { OpenLog(); }));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("About " + Title, null, delegate { ShowAbout(); }));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { ExitThread(); }));
-        menu.Opening += delegate { BuildAppsMenu(); };
 
         tray.Icon = MakeIcon();
         tray.ContextMenuStrip = menu;
+        tray.DoubleClick += delegate { ShowSettings(); };
         tray.Visible = true;
         UpdateTooltip();
 
@@ -112,6 +105,7 @@ class AutoLangSwitcherContext : ApplicationContext
         pollTimer.Stop();
         saveTimer.Stop();
         if (dirty) Save();
+        if (settingsForm != null) settingsForm.Close();
         tray.Visible = false;
         tray.Dispose();
         base.ExitThreadCore();
@@ -128,15 +122,26 @@ class AutoLangSwitcherContext : ApplicationContext
     {
         hwnd = Win32.RootOf(hwnd);
         if (hwnd == IntPtr.Zero || hwnd == curHwnd || IsIgnored(hwnd)) return;
+        string exe = Win32.ResolveExe(hwnd);
+
+        // explorer.exe also draws the taskbar, its language menu and other pop-ups. Only File Explorer
+        // windows count as an app; otherwise picking a language from the taskbar would be undone.
+        string cls = Win32.ClassNameOf(hwnd);
+        if (exe == "explorer.exe" && cls != "CabinetWClass")
+        {
+            Log("focus explorer.exe (" + cls + "): part of Windows, ignored");
+            return;
+        }
 
         // 1. Remember what the app we are leaving was using.
         if (!paused && curExe != null && Win32.IsWindow(curHwnd) && Elapsed(ignoreUntil))
             Record(curExe, Win32.LayoutOf(curHwnd));
 
         // 2. Switch to the new app.
-        string exe = Win32.ResolveExe(hwnd);
         curHwnd = hwnd;
         curExe = exe;
+        expected = IntPtr.Zero;
+        failedLayout = IntPtr.Zero;
         if (exe == null || paused) return;
 
         IntPtr wanted;
@@ -156,10 +161,12 @@ class AutoLangSwitcherContext : ApplicationContext
         int error;
         if (!Win32.RequestLayout(hwnd, wanted, out error))
             Log("  PostMessage failed (error " + error + ") - app may be running as administrator");
-        Log("focus " + exe + ": switching to " + Win32.LayoutName(wanted));
+        Log("auto switch " + exe + ": " + Win32.LayoutName(Win32.LayoutOf(hwnd)) + " -> " + Win32.LayoutName(wanted));
         // Give the app a moment to switch before we start recording again,
         // otherwise we could record the old layout for this app.
         ignoreUntil = Environment.TickCount + 800;
+        expected = wanted;
+        retries = 0;
     }
 
     void Poll()
@@ -167,17 +174,44 @@ class AutoLangSwitcherContext : ApplicationContext
         if (paused || curExe == null || !Win32.IsWindow(curHwnd) || !Elapsed(ignoreUntil)) return;
         // Skip while something else is in front, e.g. the taskbar or Alt+Tab.
         if (Win32.RootOf(Win32.GetForegroundWindow()) != curHwnd) return;
-        Record(curExe, Win32.LayoutOf(curHwnd));
+        IntPtr now = Win32.LayoutOf(curHwnd);
+        if (expected != IntPtr.Zero)
+        {
+            if (now != expected && retries < 2)
+            {
+                // In Windows' "one input language for all apps" mode a newly focused app can report the
+                // wanted layout (stale), so the first request is a no-op and Windows then applies the
+                // previous app's layout. Asking again now is a real change and sticks.
+                retries++;
+                int error;
+                Win32.RequestLayout(curHwnd, expected, out error);
+                Log("auto switch retry " + retries + " " + curExe + ": " + Win32.LayoutName(now) + " -> " + Win32.LayoutName(expected));
+                ignoreUntil = Environment.TickCount + 500;
+                return;
+            }
+            // The app ignored the automatic switch: keep the remembered layout instead of
+            // mistaking the unchanged one for the user's choice.
+            if (now != expected)
+            {
+                Log("auto switch FAILED " + curExe + ": still " + Win32.LayoutName(now) + ", keeping " + Win32.LayoutName(expected));
+                failedLayout = now;
+            }
+            expected = IntPtr.Zero;
+        }
+        Record(curExe, now);
     }
 
     void Record(string exe, IntPtr hkl)
     {
-        if (exe == null || hkl == IntPtr.Zero) return;
+        if (exe == null || hkl == IntPtr.Zero || hkl == failedLayout) return;
         IntPtr old;
-        if (map.TryGetValue(exe, out old) && old == hkl) return;
+        bool known = map.TryGetValue(exe, out old);
+        if (known && old == hkl) return;
         map[exe] = hkl;
         dirty = true;
-        Log("remember " + exe + " = " + Win32.LayoutName(hkl) + " (" + hkl.ToInt64().ToString("X") + ")");
+        // Automatic switches set the remembered layout, so any other change came from the user.
+        Log((known ? "manual switch " + exe + ": " + Win32.LayoutName(old) + " -> " : "remember new app " + exe + ": ") +
+            Win32.LayoutName(hkl) + " (" + hkl.ToInt64().ToString("X") + ")");
         UpdateTooltip();
     }
 
@@ -196,18 +230,6 @@ class AutoLangSwitcherContext : ApplicationContext
     {
         logLines.Add(DateTime.Now.ToString("HH:mm:ss.fff") + "  " + msg);
         if (logLines.Count > 500) logLines.RemoveRange(0, logLines.Count - 500);
-    }
-
-    void OpenLog()
-    {
-        try
-        {
-            Directory.CreateDirectory(DataDir);
-            string f = Path.Combine(DataDir, "debug-log.txt");
-            File.WriteAllLines(f, logLines.ToArray(), Encoding.UTF8);
-            OpenInNotepad(f);
-        }
-        catch { }
     }
 
     // ---------------------------------------------------------------- Persistence
@@ -264,34 +286,6 @@ class AutoLangSwitcherContext : ApplicationContext
     }
 
     // ---------------------------------------------------------------- Tray UI
-    void BuildAppsMenu()
-    {
-        ToolStripItem[] old = new ToolStripItem[appsItem.DropDownItems.Count];
-        appsItem.DropDownItems.CopyTo(old, 0);
-        appsItem.DropDownItems.Clear();
-        foreach (ToolStripItem item in old) item.Dispose();
-        if (map.Count == 0)
-        {
-            appsItem.DropDownItems.Add(DisabledItem("(none yet)"));
-            return;
-        }
-        appsItem.DropDownItems.Add(DisabledItem("Click an app to forget it"));
-        appsItem.DropDownItems.Add(new ToolStripSeparator());
-        foreach (KeyValuePair<string, IntPtr> e in map)
-        {
-            string key = e.Key;
-            appsItem.DropDownItems.Add(new ToolStripMenuItem(key + "  →  " + Win32.LayoutName(e.Value), null,
-                delegate { map.Remove(key); SaveNow(); }));
-        }
-    }
-
-    static ToolStripMenuItem DisabledItem(string text)
-    {
-        ToolStripMenuItem item = new ToolStripMenuItem(text);
-        item.Enabled = false;
-        return item;
-    }
-
     void ForgetAll()
     {
         if (MessageBox.Show("Forget the remembered keyboard layout for all apps?", Title,
@@ -300,20 +294,12 @@ class AutoLangSwitcherContext : ApplicationContext
         SaveNow();
     }
 
-    void OpenDataFile()
+    void SetPaused(bool value)
     {
-        Save();
-        try
-        {
-            if (!File.Exists(DataFile)) { Directory.CreateDirectory(DataDir); File.WriteAllText(DataFile, ""); }
-            OpenInNotepad(DataFile);
-        }
-        catch { }
-    }
-
-    static void OpenInNotepad(string path)
-    {
-        using (Process.Start("notepad.exe", "\"" + path + "\"")) { }
+        paused = value;
+        pauseItem.Checked = value;
+        if (pauseBox != null) pauseBox.Checked = value;
+        UpdateTooltip();
     }
 
     void UpdateTooltip()
@@ -340,10 +326,10 @@ class AutoLangSwitcherContext : ApplicationContext
         if (Elevation.RelaunchElevated("--restarted")) ExitThread();
     }
 
-    void ToggleStartup()
+    // Returns the state re-read from Windows after the change, so the caller shows what really happened.
+    bool SetStartup(bool enable)
     {
-        // The checkmark is re-read from Windows after every change, so it is the current state.
-        if (startupItem.Checked)
+        if (!enable)
         {
             Startup.Disable();
         }
@@ -358,10 +344,10 @@ class AutoLangSwitcherContext : ApplicationContext
             int code = Startup.Enable();
             Log("create startup task: exit code " + code);
             if (code != 0)
-                MessageBox.Show("Could not create the startup task (see Open debug log).", Title,
+                MessageBox.Show("Could not create the startup task (see the Log tab in Settings).", Title,
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
-        startupItem.Checked = Startup.IsEnabled;
+        return Startup.IsEnabled;
     }
 
     // Blue keyboard with a green "restore" arrow badge. Drawn at the real tray size so it stays sharp
