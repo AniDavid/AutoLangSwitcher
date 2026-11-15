@@ -56,6 +56,8 @@ Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .N
 | **About AutoLangSwitcher** | Shows the version and credits. |
 | **Exit** | Closes AutoLangSwitcher. |
 
+While **Caps Lock** is on, the tray keyboard turns orange and shows a capital **A**.
+
 **Settings window**
 
 | Tab | What it shows |
@@ -97,6 +99,8 @@ No special permissions are needed.
 | **Pause** | Temporarily stops switching. |
 | **About AutoLangSwitcher** | Shows the version and credits. |
 | **Quit AutoLangSwitcher** | Closes it. |
+
+While **Caps Lock** is on, the menu bar keyboard turns orange and shows a capital **A**.
 
 The **Settings** window has the same tabs as on Windows: **Apps** (remove remembered apps), **General** (**Pause** and **Start at Login**), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
 

@@ -48,14 +48,15 @@ enum InputSources {
 // Keyboard with a "restore" arrow badge - the same design as the Windows tray icon, drawn as a
 // one-colour template image so macOS tints it for light and dark menu bars.
 enum MenuBarIcon {
-    static func make() -> NSImage {
+    // caps: Caps Lock is on - orange (not a template, so macOS keeps the colour) with an "A" instead of the keys.
+    static func make(caps: Bool = false) -> NSImage {
         // Flipped (y points down) so the coordinates match the Windows drawing on a 64x64 grid.
         let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
             guard let ctx = NSGraphicsContext.current else { return false }
             let scale = NSAffineTransform()
             scale.scale(by: 18.0 / 64.0)
             scale.concat()
-            NSColor.black.set()
+            (caps ? NSColor.systemOrange : NSColor.black).set()
 
             // Keyboard body
             NSBezierPath(roundedRect: NSRect(x: 2, y: 12, width: 56, height: 38), xRadius: 9, yRadius: 9).fill()
@@ -64,13 +65,29 @@ enum MenuBarIcon {
             let c = NSPoint(x: 48, y: 48)
             let r: CGFloat = 14
             ctx.compositingOperation = .destinationOut
-            for row in 0..<2 {
-                for col in 0..<4 {
-                    let key = NSRect(x: 8 + CGFloat(col) * 11, y: 18 + CGFloat(row) * 10, width: 7, height: 6)
-                    NSBezierPath(roundedRect: key, xRadius: 1.5, yRadius: 1.5).fill()
+            if caps {
+                // A bold capital "A" (outline plus its triangular hole), so the state doesn't depend on colour.
+                let letter = NSBezierPath()
+                letter.windingRule = .evenOdd
+                let outline: [NSPoint] = [NSPoint(x: 19, y: 15), NSPoint(x: 29, y: 15), NSPoint(x: 40, y: 47),
+                                          NSPoint(x: 32, y: 47), NSPoint(x: 29.5, y: 40), NSPoint(x: 18.5, y: 40),
+                                          NSPoint(x: 16, y: 47), NSPoint(x: 8, y: 47)]
+                let hole: [NSPoint] = [NSPoint(x: 24, y: 24), NSPoint(x: 27.2, y: 34), NSPoint(x: 20.8, y: 34)]
+                for shape in [outline, hole] {
+                    letter.move(to: shape[0])
+                    shape.dropFirst().forEach { letter.line(to: $0) }
+                    letter.close()
                 }
+                letter.fill()
+            } else {
+                for row in 0..<2 {
+                    for col in 0..<4 {
+                        let key = NSRect(x: 8 + CGFloat(col) * 11, y: 18 + CGFloat(row) * 10, width: 7, height: 6)
+                        NSBezierPath(roundedRect: key, xRadius: 1.5, yRadius: 1.5).fill()
+                    }
+                }
+                NSBezierPath(roundedRect: NSRect(x: 14, y: 39, width: 24, height: 6), xRadius: 1.5, yRadius: 1.5).fill()
             }
-            NSBezierPath(roundedRect: NSRect(x: 14, y: 39, width: 24, height: 6), xRadius: 1.5, yRadius: 1.5).fill()
             NSBezierPath(ovalIn: NSRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)).fill()
 
             // Badge disc
@@ -97,8 +114,8 @@ enum MenuBarIcon {
             head.fill()
             return true
         }
-        img.isTemplate = true
-        img.accessibilityDescription = "AutoLangSwitcher"
+        img.isTemplate = !caps
+        img.accessibilityDescription = caps ? "AutoLangSwitcher, Caps Lock on" : "AutoLangSwitcher"
         return img
     }
 }
@@ -121,6 +138,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var map: [String: String] = [:]      // app bundle id -> input source id
     var currentApp: String?
     var paused = false
+    var capsOn = false
+    let normalIcon = MenuBarIcon.make()
+    let capsIcon = MenuBarIcon.make(caps: true)
     var logLines: [String] = []
 
     // An automatic switch being checked by verifySwitch (same idea as the Windows version).
@@ -267,12 +287,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Menu bar
 
+    @objc func checkCapsLock() {
+        let on = CGEventSource.flagsState(.combinedSessionState).contains(.maskAlphaShift)
+        guard on != capsOn, let button = statusItem.button else { return }
+        capsOn = on
+        button.image = on ? capsIcon : normalIcon
+        button.toolTip = on ? "CAPS LOCK ON - AutoLangSwitcher" : "AutoLangSwitcher"
+    }
+
     func setupMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = MenuBarIcon.make()
+            button.image = normalIcon
             button.toolTip = "AutoLangSwitcher"
         }
+        // Caps Lock indicator. Polling the modifier state needs no special permission (a key monitor would).
+        Timer.scheduledTimer(timeInterval: 0.3, target: self, selector: #selector(checkCapsLock),
+                             userInfo: nil, repeats: true)
 
         let menu = NSMenu()
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -691,6 +722,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
           - If an app keeps getting the wrong input source, open the Log tab right after it happens, click Copy all, and paste it into an issue on GitHub:
             https://github.com/AniDavid/AutoLangSwitcher/issues
           - Pause it from the menu bar if you want to switch input sources by hand for a while.
+          - While Caps Lock is on, the menu bar keyboard turns orange and shows a capital A.
         """
 }
 

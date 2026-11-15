@@ -47,6 +47,8 @@ partial class AutoLangSwitcherContext : ApplicationContext
     IntPtr failedLayout = IntPtr.Zero;  // layout left behind by a failed switch; not the user's choice
     bool dirty = false;
     bool paused = false;
+    bool capsOn = false;
+    readonly Icon normalIcon = MakeIcon(false), capsIcon = MakeIcon(true);
 
     public AutoLangSwitcherContext()
     {
@@ -74,7 +76,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
         menu.Items.Add(new ToolStripMenuItem("About " + Title, null, delegate { ShowAbout(); }));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { ExitThread(); }));
 
-        tray.Icon = MakeIcon();
+        tray.Icon = normalIcon;
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += delegate { ShowSettings(); };
         tray.Visible = true;
@@ -89,7 +91,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
 
         // Poll the active app's layout so changes (Alt+Shift, Win+Space) are remembered
         pollTimer.Interval = 300;
-        pollTimer.Tick += delegate { Poll(); };
+        pollTimer.Tick += delegate { UpdateCapsLock(); Poll(); };
         pollTimer.Start();
 
         saveTimer.Interval = 5000;
@@ -302,9 +304,19 @@ partial class AutoLangSwitcherContext : ApplicationContext
         UpdateTooltip();
     }
 
+    // Caps Lock indicator: orange keyboard in the tray while it is on.
+    void UpdateCapsLock()
+    {
+        bool on = Control.IsKeyLocked(Keys.CapsLock);
+        if (on == capsOn) return;
+        capsOn = on;
+        tray.Icon = on ? capsIcon : normalIcon;
+        UpdateTooltip();
+    }
+
     void UpdateTooltip()
     {
-        string t = Title + (Elevation.IsElevated ? " (admin)" : " (not admin)") +
+        string t = (capsOn ? "CAPS LOCK ON - " : "") + Title +(Elevation.IsElevated ? " (admin)" : " (not admin)") +
             (paused ? " (paused)" : "") + " - " + map.Count + " app(s)";
         tray.Text = t.Length > 63 ? t.Substring(0, 63) : t;   // NotifyIcon limit
     }
@@ -352,7 +364,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
 
     // Blue keyboard with a green "restore" arrow badge. Drawn at the real tray size so it stays sharp
     // (shortcut: on net48 the app is not DPI-aware, so this is 16px and Windows scales it on high-DPI screens).
-    static Icon MakeIcon()
+    static Icon MakeIcon(bool caps)
     {
         int size = SystemInformation.SmallIconSize.Width;
         using (Bitmap bmp = new Bitmap(size, size))
@@ -368,9 +380,24 @@ partial class AutoLangSwitcherContext : ApplicationContext
                 RectangleF body = new RectangleF(2, 12, 56, 38);
                 using (GraphicsPath p = RoundRect(body, 9))
                 using (LinearGradientBrush b = new LinearGradientBrush(body,
-                    Color.FromArgb(66, 150, 255), Color.FromArgb(24, 92, 210), 90f))
+                    caps ? Color.FromArgb(255, 170, 40) : Color.FromArgb(66, 150, 255),
+                    caps ? Color.FromArgb(220, 110, 0) : Color.FromArgb(24, 92, 210), 90f))
                     g.FillPath(b, p);
-                using (SolidBrush w = new SolidBrush(Color.White))
+                if (caps)
+                {
+                    // A capital "A" instead of the keys, so the state doesn't depend on seeing the color.
+                    using (GraphicsPath letter = new GraphicsPath())
+                    using (StringFormat sf = new StringFormat())
+                    using (FontFamily font = new FontFamily("Arial"))
+                    using (SolidBrush w = new SolidBrush(Color.White))
+                    {
+                        sf.Alignment = StringAlignment.Center;
+                        sf.LineAlignment = StringAlignment.Center;
+                        letter.AddString("A", font, (int)FontStyle.Bold, 42, new RectangleF(2, 10, 44, 44), sf);
+                        g.FillPath(w, letter);
+                    }
+                }
+                else using (SolidBrush w = new SolidBrush(Color.White))
                 {
                     for (int row = 0; row < 2; row++)
                         for (int col = 0; col < 4; col++)

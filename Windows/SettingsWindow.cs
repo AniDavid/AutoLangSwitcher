@@ -211,7 +211,8 @@ AutoLangSwitcher runs as administrator so it can also switch programs that run a
 TIPS
   - If a program keeps getting the wrong language, open the Log tab right after it happens, click Copy all, and paste it into an issue on GitHub:
     https://github.com/AniDavid/AutoLangSwitcher/issues
-  - Pause it from the tray menu if you want to switch languages by hand for a while.";
+  - Pause it from the tray menu if you want to switch languages by hand for a while.
+  - While Caps Lock is on, the tray keyboard turns orange and shows a capital A.";
 
     // A tab with the main control filling it and an optional button bar along the bottom.
     static TabPage MakeTab(string text, Control main, Control buttons)
