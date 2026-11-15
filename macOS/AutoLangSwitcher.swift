@@ -1,9 +1,10 @@
-// AutoLangSwitcher for macOS (formerly Keyboard Memory) - remembers the keyboard input source you
-// last used in each application and restores it when that application becomes active again.
+// AutoLangSwitcher for macOS - remembers the keyboard input source you last used in each
+// application and restores it when that application becomes active again.
 //
 // Build: ./build.sh  (needs Apple's Command Line Tools: xcode-select --install)
 // Data:  stored in the app's preferences (defaults domain com.autolangswitcher.app).
 //        Until the first change, the old com.keyboardmemory.app preferences are read instead.
+// One file on purpose: swiftc treats a single file's top-level code (bottom) as the program start.
 
 import Cocoa
 import Carbon
@@ -35,7 +36,8 @@ enum InputSources {
         return TISSelectInputSource(src) == noErr
     }
 
-    static func name(_ id: String) -> String {
+    static func name(_ id: String?) -> String {
+        guard let id = id else { return "unknown" }
         if let src = find(id), let n = property(src, kTISPropertyLocalizedName) { return n }
         return id
     }
@@ -104,23 +106,43 @@ enum MenuBarIcon {
 // MARK: - App
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     // Names used when the app was called Keyboard Memory.
-    private static let legacyBundleID = "com.keyboardmemory.app"
-    private static let legacyAgentLabel = "com.keyboardmemory.agent"
-    private static let agentLabel = "com.autolangswitcher.agent"
+    static let legacyBundleID = "com.keyboardmemory.app"
+    static let legacyAgentLabel = "com.keyboardmemory.agent"
+    static let agentLabel = "com.autolangswitcher.agent"
+    static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
 
-    private let defaultsKey = "layouts"
-    private var map: [String: String] = [:]      // app bundle id -> input source id
-    private var currentApp: String?
-    private var paused = false
+    let defaultsKey = "layouts"
+    var map: [String: String] = [:]      // app bundle id -> input source id
+    var currentApp: String?
+    var paused = false
+    var logLines: [String] = []
 
-    private var statusItem: NSStatusItem!
-    private let appsMenu = NSMenu()
-    private var pauseItem: NSMenuItem!
-    private var loginItem: NSMenuItem!
+    // An automatic switch being checked by verifySwitch (same idea as the Windows version).
+    var expected: String?        // input source the switch asked for
+    var retries = 0              // re-requests already made for this switch
+    var failedSource: String?    // source left behind by a failed switch; not the user's choice
 
-    private func launchAgentURL(_ label: String) -> URL {
+    var statusItem: NSStatusItem!
+    var pauseItem: NSMenuItem!
+
+    // Settings window parts, built in the extension below
+    var settingsWindow: NSWindow?
+    var settingsTabs: NSTabView?
+    var appsTable: NSTableView?
+    var removeButton: NSButton?
+    var appRows: [(app: String, source: String)] = []
+    var pauseBox: NSButton?
+    var loginBox: NSButton?
+    var savedListView: NSTextView?
+    var logView: NSTextView?
+
+    func launchAgentURL(_ label: String) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
@@ -141,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ?? [:]
         migrateLaunchAgent()
         setupMenu()
+        log("started, \(map.count) app(s) loaded")
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(appActivated(_:)),
@@ -156,47 +179,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Core logic
 
-    @objc private func appActivated(_ note: Notification) {
+    @objc func appActivated(_ note: Notification) {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         handleActivation(app)
     }
 
-    private func handleActivation(_ app: NSRunningApplication) {
-        guard let id = app.bundleIdentifier ?? app.executableURL?.lastPathComponent,
-              id != Bundle.main.bundleIdentifier else { return }
+    func handleActivation(_ app: NSRunningApplication) {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(verifySwitch), object: nil)
+        expected = nil
+        failedSource = nil
+        guard let id = app.bundleIdentifier ?? app.executableURL?.lastPathComponent else { return }
+        // Our own Settings window: don't record source changes made while it is in front.
+        if id == Bundle.main.bundleIdentifier {
+            currentApp = nil
+            return
+        }
         currentApp = id
         if paused { return }
 
-        if let wanted = map[id] {
-            if wanted != InputSources.currentID() {
-                if !InputSources.select(wanted) {
-                    NSLog("AutoLangSwitcher: input source \(wanted) is not enabled, skipping \(id)")
-                }
-            }
-        } else if let cur = InputSources.currentID() {
-            record(id, cur)   // first time we see this app: remember what it starts with
+        let cur = InputSources.currentID()
+        guard let wanted = map[id] else {
+            if let cur = cur { record(id, cur) }   // first time we see this app: remember what it starts with
+            return
         }
+        if InputSources.find(wanted) == nil {
+            log("focus \(id): saved input source \(InputSources.name(wanted)) is not enabled, skipping")
+            return
+        }
+        log("auto switch \(id): \(InputSources.name(cur)) -> \(InputSources.name(wanted))")
+        if wanted != cur { InputSources.select(wanted) }
+        // Check shortly that the switch stuck; source changes are not recorded until then.
+        expected = wanted
+        retries = 0
+        perform(#selector(verifySwitch), with: nil, afterDelay: 0.6)
+    }
+
+    @objc func verifySwitch() {
+        guard let want = expected, let app = currentApp else { return }
+        let cur = InputSources.currentID()
+        if cur == want {
+            expected = nil
+            return
+        }
+        if retries < 2 {
+            retries += 1
+            InputSources.select(want)
+            log("auto switch retry \(retries) \(app): \(InputSources.name(cur)) -> \(InputSources.name(want))")
+            perform(#selector(verifySwitch), with: nil, afterDelay: 0.5)
+            return
+        }
+        // Keep the remembered source instead of mistaking the unchanged one for the user's choice.
+        log("auto switch FAILED \(app): still \(InputSources.name(cur)), keeping \(InputSources.name(want))")
+        failedSource = cur
+        expected = nil
     }
 
     // The user switched input source (menu, Ctrl+Space, Globe key...), or we did.
-    @objc private func inputSourceChanged() {
-        guard !paused, let app = currentApp, let cur = InputSources.currentID() else { return }
+    @objc func inputSourceChanged() {
+        guard !paused, expected == nil, let app = currentApp,
+              let cur = InputSources.currentID(), cur != failedSource else { return }
         record(app, cur)
     }
 
-    private func record(_ app: String, _ source: String) {
-        guard map[app] != source else { return }
+    func record(_ app: String, _ source: String) {
+        let old = map[app]
+        guard old != source else { return }
         map[app] = source
         save()
+        // Automatic switches set the remembered source, so any other change came from the user.
+        if let old = old {
+            log("manual switch \(app): \(InputSources.name(old)) -> \(InputSources.name(source))")
+        } else {
+            log("remember new app \(app): \(InputSources.name(source))")
+        }
     }
 
-    private func save() {
+    func save() {
         UserDefaults.standard.set(map, forKey: defaultsKey)
+    }
+
+    // MARK: Debug log (shown on the Log tab)
+
+    func log(_ msg: String) {
+        logLines.append(Self.timeFormat.string(from: Date()) + "  " + msg)
+        if logLines.count > 500 { logLines.removeFirst(logLines.count - 500) }
     }
 
     // MARK: Menu bar
 
-    private func setupMenu() {
+    func setupMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = MenuBarIcon.make()
@@ -204,60 +275,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let menu = NSMenu()
-        let about = NSMenuItem(title: "About AutoLangSwitcher", action: #selector(showAbout), keyEquivalent: "")
-        about.target = self
-        menu.addItem(about)
-        menu.addItem(.separator())
-
-        let appsItem = NSMenuItem(title: "Remembered Apps", action: nil, keyEquivalent: "")
-        appsMenu.delegate = self
-        appsItem.submenu = appsMenu
-        menu.addItem(appsItem)
-        menu.addItem(.separator())
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
 
         pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
         pauseItem.target = self
         menu.addItem(pauseItem)
-
-        loginItem = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
-        loginItem.target = self
-        loginItem.state = loginEnabled ? .on : .off
-        menu.addItem(loginItem)
-
-        let forget = NSMenuItem(title: "Forget All Apps", action: #selector(forgetAll), keyEquivalent: "")
-        forget.target = self
-        menu.addItem(forget)
-
         menu.addItem(.separator())
+
+        let about = NSMenuItem(title: "About AutoLangSwitcher", action: #selector(showAbout), keyEquivalent: "")
+        about.target = self
+        menu.addItem(about)
         menu.addItem(NSMenuItem(title: "Quit AutoLangSwitcher",
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
 
-    // Rebuild the "Remembered Apps" submenu each time it opens
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu === appsMenu else { return }
-        menu.removeAllItems()
-        if map.isEmpty {
-            let none = NSMenuItem(title: "(none yet)", action: nil, keyEquivalent: "")
-            none.isEnabled = false
-            menu.addItem(none)
-            return
-        }
-        let hint = NSMenuItem(title: "Click an app to forget it", action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        menu.addItem(hint)
-        menu.addItem(.separator())
-        for (app, source) in map.sorted(by: { displayName($0.key).lowercased() < displayName($1.key).lowercased() }) {
-            let item = NSMenuItem(title: "\(displayName(app))  →  \(InputSources.name(source))",
-                                  action: #selector(forgetApp(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = app
-            menu.addItem(item)
-        }
-    }
-
-    private func displayName(_ bundleID: String) -> String {
+    func displayName(_ bundleID: String) -> String {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             return FileManager.default.displayName(atPath: url.path)
                 .replacingOccurrences(of: ".app", with: "")
@@ -265,15 +300,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return bundleID
     }
 
-    @objc private func forgetApp(_ sender: NSMenuItem) {
-        guard let app = sender.representedObject as? String else { return }
-        map.removeValue(forKey: app)
-        save()
-    }
-
     // Standard macOS About panel; the version comes from Info.plist (set in build.sh).
     // Edit the credit lines here (the Windows version has the same text in AutoLangSwitcherContext.cs).
-    @objc private func showAbout() {
+    @objc func showAbout() {
         let credits = """
             Remembers the keyboard language you use in each program and switches back to it when you return.
 
@@ -289,12 +318,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ])
     }
 
-    @objc private func togglePause() {
-        paused.toggle()
-        pauseItem.state = paused ? .on : .off
+    func setPaused(_ value: Bool) {
+        paused = value
+        pauseItem.state = value ? .on : .off
+        pauseBox?.state = value ? .on : .off
     }
 
-    @objc private func forgetAll() {
+    @objc func togglePause() {
+        setPaused(!paused)
+    }
+
+    func forgetAll() {
         let alert = NSAlert()
         alert.messageText = "Forget the remembered input source for all apps?"
         alert.addButton(withTitle: "Forget All")
@@ -309,13 +343,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Start at login
     // A LaunchAgent in ~/Library/LaunchAgents starts the app at login.
 
-    private var loginEnabled: Bool {
+    var loginEnabled: Bool {
         let fm = FileManager.default
         return fm.fileExists(atPath: launchAgentURL(Self.agentLabel).path)
             || fm.fileExists(atPath: launchAgentURL(Self.legacyAgentLabel).path)
     }
 
-    private func writeLaunchAgent() {
+    func writeLaunchAgent() {
         guard let exe = Bundle.main.executablePath else { return }
         let url = launchAgentURL(Self.agentLabel)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -330,7 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Keyboard Memory's LaunchAgent points at the old app. Replace it, removing the old one
     // only once the new one exists.
-    private func migrateLaunchAgent() {
+    func migrateLaunchAgent() {
         let fm = FileManager.default
         let legacy = launchAgentURL(Self.legacyAgentLabel)
         guard fm.fileExists(atPath: legacy.path) else { return }
@@ -338,15 +372,326 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if fm.fileExists(atPath: launchAgentURL(Self.agentLabel).path) { try? fm.removeItem(at: legacy) }
     }
 
-    @objc private func toggleLogin() {
-        if loginEnabled {
+    // Returns the state read back from disk after the change.
+    func setLogin(_ enable: Bool) -> Bool {
+        if enable {
+            writeLaunchAgent()
+        } else {
             try? FileManager.default.removeItem(at: launchAgentURL(Self.agentLabel))
             try? FileManager.default.removeItem(at: launchAgentURL(Self.legacyAgentLabel))
-        } else {
-            writeLaunchAgent()
         }
-        loginItem.state = loginEnabled ? .on : .off
+        let on = loginEnabled
+        log("start at login: " + (on ? "on" : "off"))
+        return on
     }
+}
+
+// MARK: - Settings window
+// Same tabs as the Windows version (SettingsWindow.cs): Apps, General, Saved list, Log, Help.
+
+extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDelegate {
+
+    @objc func showSettings() {
+        if settingsWindow == nil { buildSettingsWindow() }
+        refreshSelectedTab()
+        NSApp.activate(ignoringOtherApps: true)   // menu bar apps are in the background
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func buildSettingsWindow() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                              backing: .buffered, defer: false)
+        window.title = "AutoLangSwitcher Settings"
+        window.minSize = NSSize(width: 420, height: 320)
+        window.isReleasedWhenClosed = false   // reused each time Settings is opened
+        window.center()
+
+        let tabs = NSTabView()
+        tabs.addTabViewItem(tabItem("Apps", appsTab()))
+        tabs.addTabViewItem(tabItem("General", generalTab()))
+        tabs.addTabViewItem(tabItem("Saved list", savedListTab()))
+        tabs.addTabViewItem(tabItem("Log", logTab()))
+        tabs.addTabViewItem(tabItem("Help", helpTab()))
+        tabs.delegate = self   // set after adding, so building the tabs doesn't trigger a refresh
+
+        let content = NSView()
+        tabs.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(tabs)
+        NSLayoutConstraint.activate([
+            tabs.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            tabs.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            tabs.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            tabs.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+        ])
+        window.contentView = content
+        settingsTabs = tabs
+        settingsWindow = window
+    }
+
+    // Reload the visible tab each time it is shown, so it is never out of date.
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        refreshSelectedTab()
+    }
+
+    func refreshSelectedTab() {
+        pauseBox?.state = paused ? .on : .off
+        switch settingsTabs?.selectedTabViewItem?.identifier as? String {
+        case "Apps": fillApps()
+        case "General": loginBox?.state = loginEnabled ? .on : .off
+        case "Saved list": fillSavedList()
+        case "Log": fillLog()
+        default: break
+        }
+    }
+
+    // MARK: Layout helpers
+
+    func tabItem(_ label: String, _ view: NSView) -> NSTabViewItem {
+        let item = NSTabViewItem(identifier: label)
+        item.label = label
+        view.autoresizingMask = [.width, .height]   // follow the tab view when the window is resized
+        item.view = view
+        return item
+    }
+
+    // A tab page: the main view fills it, with an optional row of buttons along the bottom.
+    func page(_ main: NSView, _ buttons: [NSView]) -> NSView {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 360))
+        main.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(main)
+        var c = [
+            main.topAnchor.constraint(equalTo: v.topAnchor, constant: 12),
+            main.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 12),
+            main.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -12),
+        ]
+        if buttons.isEmpty {
+            c.append(main.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -12))
+        } else {
+            let bar = NSStackView(views: buttons)
+            bar.orientation = .horizontal
+            bar.translatesAutoresizingMaskIntoConstraints = false
+            v.addSubview(bar)
+            c += [
+                bar.topAnchor.constraint(equalTo: main.bottomAnchor, constant: 8),
+                bar.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 12),
+                bar.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -12),
+                bar.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -12),
+            ]
+        }
+        NSLayoutConstraint.activate(c)
+        return v
+    }
+
+    func makeTextView() -> (NSScrollView, NSTextView) {
+        let scroll = NSTextView.scrollableTextView()
+        let text = scroll.documentView as! NSTextView
+        text.isEditable = false
+        text.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        return (scroll, text)
+    }
+
+    // MARK: Apps tab
+
+    func appsTab() -> NSView {
+        let table = NSTableView()
+        for (id, title, width) in [("app", "Program", CGFloat(240)), ("source", "Input source", CGFloat(220))] {
+            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
+            col.title = title
+            col.width = width
+            table.addTableColumn(col)
+        }
+        table.allowsMultipleSelection = true
+        table.usesAlternatingRowBackgroundColors = true
+        table.dataSource = self
+        table.delegate = self
+        let scroll = NSScrollView()
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        appsTable = table
+
+        let remove = NSButton(title: "Remove", target: self, action: #selector(removeSelectedApps))
+        remove.isEnabled = false
+        removeButton = remove
+        let removeAll = NSButton(title: "Remove all", target: self, action: #selector(removeAllApps))
+        return page(scroll, [remove, removeAll])
+    }
+
+    func fillApps() {
+        appRows = map.map { (app: $0.key, source: $0.value) }
+            .sorted { displayName($0.app).lowercased() < displayName($1.app).lowercased() }
+        appsTable?.reloadData()
+        removeButton?.isEnabled = false
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        appRows.count
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let r = appRows[row]
+        let isApp = tableColumn?.identifier.rawValue == "app"
+        let field = NSTextField(labelWithString: isApp ? displayName(r.app) : InputSources.name(r.source))
+        field.lineBreakMode = .byTruncatingTail
+        if isApp { field.toolTip = r.app }
+        return field
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        removeButton?.isEnabled = !(appsTable?.selectedRowIndexes.isEmpty ?? true)
+    }
+
+    @objc func removeSelectedApps() {
+        guard let table = appsTable else { return }
+        for i in table.selectedRowIndexes where i < appRows.count {
+            map.removeValue(forKey: appRows[i].app)
+        }
+        save()
+        fillApps()
+    }
+
+    @objc func removeAllApps() {
+        forgetAll()
+        fillApps()
+    }
+
+    // MARK: General tab
+
+    func generalTab() -> NSView {
+        let pause = NSButton(checkboxWithTitle: "Pause (stop switching input sources for now)",
+                             target: self, action: #selector(pauseBoxClicked(_:)))
+        let login = NSButton(checkboxWithTitle: "Start at Login", target: self, action: #selector(loginBoxClicked(_:)))
+        pauseBox = pause
+        loginBox = login
+        let stack = NSStackView(views: [pause, login])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 360))
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: v.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
+        ])
+        return v
+    }
+
+    @objc func pauseBoxClicked(_ sender: NSButton) {
+        setPaused(sender.state == .on)   // also updates the menu bar item
+    }
+
+    @objc func loginBoxClicked(_ sender: NSButton) {
+        sender.state = setLogin(sender.state == .on) ? .on : .off   // show what is really on disk
+    }
+
+    // MARK: Saved list tab (Windows shows its settings file here; macOS keeps the list in preferences)
+
+    func savedListTab() -> NSView {
+        let (scroll, text) = makeTextView()
+        savedListView = text
+        let refresh = NSButton(title: "Refresh", target: self, action: #selector(fillSavedList))
+        return page(scroll, [refresh])
+    }
+
+    @objc func fillSavedList() {
+        let domain = Bundle.main.bundleIdentifier ?? "com.autolangswitcher.app"
+        var s = "Stored in macOS preferences: ~/Library/Preferences/\(domain).plist\n"
+        s += "Format: app id = input source id ; name\n\n"
+        if map.isEmpty { s += "(no apps remembered yet)\n" }
+        for (app, source) in map.sorted(by: { $0.key < $1.key }) {
+            s += "\(app) = \(source) ; \(InputSources.name(source))\n"
+        }
+        savedListView?.string = s
+    }
+
+    // MARK: Log tab
+
+    func logTab() -> NSView {
+        let (scroll, text) = makeTextView()
+        logView = text
+        let refresh = NSButton(title: "Refresh", target: self, action: #selector(fillLog))
+        let copy = NSButton(title: "Copy all", target: self, action: #selector(copyLog))
+        let clear = NSButton(title: "Clear", target: self, action: #selector(clearLog))
+        let legend = NSTextField(labelWithString: "Blue: you switched   Green: app switched   Gray: focus   Red: problem")
+        legend.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        legend.textColor = .secondaryLabelColor
+        return page(scroll, [refresh, copy, clear, legend])
+    }
+
+    @objc func fillLog() {
+        guard let text = logView else { return }
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let out = NSMutableAttributedString()
+        for line in logLines {
+            out.append(NSAttributedString(string: line + "\n",
+                                          attributes: [.font: font, .foregroundColor: logColor(line)]))
+        }
+        text.textStorage?.setAttributedString(out)
+        text.scrollToEndOfDocument(nil)
+    }
+
+    // Colors follow the wording used by log() calls above.
+    func logColor(_ line: String) -> NSColor {
+        if line.contains("FAILED") || line.contains("not enabled") { return .systemRed }
+        if line.contains("  manual switch ") || line.contains("  remember ") { return .systemBlue }
+        if line.contains("  auto switch ") { return .systemGreen }
+        if line.contains("  focus ") { return .secondaryLabelColor }
+        return .labelColor
+    }
+
+    @objc func copyLog() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(logLines.joined(separator: "\n"), forType: .string)
+    }
+
+    @objc func clearLog() {
+        logLines.removeAll()
+        fillLog()
+    }
+
+    // MARK: Help tab
+
+    func helpTab() -> NSView {
+        let (scroll, text) = makeTextView()
+        text.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        text.string = Self.helpText
+        return page(scroll, [])
+    }
+
+    static let helpText = """
+        WHAT IT DOES
+        AutoLangSwitcher remembers the keyboard input source you last used in each app and switches back to it when you return to that app. For example: Hebrew in WhatsApp, English in your code editor.
+
+        HOW TO USE IT
+        There is nothing to set up. Just use your Mac as usual:
+          - Switch the input source in an app (Ctrl+Space, the Globe key, or the input menu in the menu bar). AutoLangSwitcher remembers it.
+          - When you come back to that app, even after a restart, its input source comes back by itself.
+          - To change an app's input source, just switch it again. The new choice replaces the old one.
+
+        It remembers by app, not by window or tab: all browser tabs share one input source.
+
+        HOW IT WORKS
+          1. macOS tells AutoLangSwitcher each time a different app comes to the front.
+          2. For that app, it looks up the saved input source and switches to it.
+          3. About half a second later it checks that the switch worked, and asks again if it didn't.
+          4. macOS also tells it whenever you change the input source, so your choice is remembered right away for the app in front.
+
+        It never reads what you type, and it does not fix text typed in the wrong language.
+
+        THE TABS
+          Apps: the apps it remembers. Select some and click Remove to forget them.
+          General: pause it, and start it when you log in.
+          Saved list: the remembered list, as stored in the app's preferences.
+          Log: what it has been doing. Blue lines are switches you made, green lines are switches it made, red lines are problems.
+
+        TIPS
+          - Turn off macOS's own "Automatically switch to a document's input source" so the two don't fight. It's in System Settings > Keyboard > Text Input > Input Sources > Edit.
+          - If an app keeps getting the wrong input source, open the Log tab right after it happens, click Copy all, and paste it into an issue on GitHub:
+            https://github.com/AniDavid/AutoLangSwitcher/issues
+          - Pause it from the menu bar if you want to switch input sources by hand for a while.
+        """
 }
 
 // MARK: - Main

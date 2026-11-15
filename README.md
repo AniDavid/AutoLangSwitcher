@@ -85,7 +85,7 @@ Requires macOS 11 (Big Sur) or later.
    ```
    If it says the Swift compiler is missing, run `xcode-select --install`, accept the download, and run `./build.sh` again.
 3. The app is installed in your Applications folder (`~/Applications`) and starts automatically. A keyboard icon with a small arrow badge appears in the menu bar.
-4. Click the icon and choose **Start at Login**.
+4. Click the icon, choose **Settings…**, and on the **General** tab tick **Start at Login**.
 
 No special permissions are needed.
 
@@ -93,12 +93,12 @@ No special permissions are needed.
 
 | Item | What it does |
 |---|---|
-| **About AutoLangSwitcher** | Shows the version and credits. |
-| **Remembered Apps** | Lists each program and its input source. Click one to forget it. |
+| **Settings…** | Opens the Settings window. |
 | **Pause** | Temporarily stops switching. |
-| **Start at Login** | Starts AutoLangSwitcher automatically when you log in. |
-| **Forget All Apps** | Clears everything it has remembered. |
+| **About AutoLangSwitcher** | Shows the version and credits. |
 | **Quit AutoLangSwitcher** | Closes it. |
+
+The **Settings** window has the same tabs as on Windows: **Apps** (remove remembered apps), **General** (**Pause** and **Start at Login**), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
 
 **Tip:** Turn off macOS's own **"Automatically switch to a document's input source"** setting so the two don't fight. It's in System Settings → Keyboard → Text Input → Input Sources → Edit.
 

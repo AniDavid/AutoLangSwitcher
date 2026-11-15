@@ -1,0 +1,20 @@
+# Compiles the macOS app on a GitHub Mac, since the author doesn't have one.
+# Only checks that it compiles; it doesn't test how the app behaves.
+name: macOS build
+
+on:
+  push:
+    paths: ["macOS/**", ".github/workflows/macos-build.yml"]
+  pull_request:
+    paths: ["macOS/**"]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        working-directory: macOS
+        run: |
+          swiftc --version
+          swiftc -O -o AutoLangSwitcher AutoLangSwitcher.swift -framework Cocoa -framework Carbon
