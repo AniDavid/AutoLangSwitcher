@@ -41,6 +41,9 @@ final class SmartSwitch {
     var layouts: [KeyLayout] = []
     var word: [KeyStroke] = []
     var history: [TypedWord] = []   // the words before it, separated by single spaces ("a run")
+    var wordPid: pid_t = 0
+    // The word and run of the app typed in before this one, kept for when the user Command-Tabs back.
+    var saved: (pid: pid_t, word: [KeyStroke], history: [TypedWord])?
     var keyCount = 0                // key presses so far; a change means the user typed on after a word ended
 
     // The fix for the last words, waiting for the fix key (suggest mode), or the undo of a fix just made.
@@ -156,6 +159,7 @@ final class SmartSwitch {
         if event.getIntegerValueField(.eventSourceUserData) == Self.marker { return false }
         if type != .keyDown {
             endRun()       // a click may have moved the cursor
+            saved = nil    // shortcut: any click, even on the Dock; telling where it landed needs the window list
             setFix(nil)
             return false
         }
@@ -176,6 +180,7 @@ final class SmartSwitch {
             return false
         }
         if fixText != nil { setFix(nil) }   // typing on: the suggestion no longer applies
+        if Int(code) == kVK_Tab, flags.contains(.maskCommand), !flags.contains(.maskControl) { return false }   // Command-Tab
         if app.paused || flags.contains(.maskCommand) || flags.contains(.maskControl) || IsSecureEventInputEnabled() {
             endRun()   // paused, a shortcut, or a password field: not part of a word
             return false
@@ -235,6 +240,16 @@ final class SmartSwitch {
         }
         history.append(w)
         if history.count > Self.lookBack { history.removeFirst() }
+    }
+
+    // Another app came to the front: keep this app's word, and pick up the new one's if it was the app
+    // typed in just before.
+    func switched(to pid: pid_t) {
+        let back = saved?.pid == pid ? saved : nil
+        saved = (wordPid, word, history)
+        word = back?.word ?? []
+        history = back?.history ?? []
+        wordPid = pid
     }
 
     func endRun() {

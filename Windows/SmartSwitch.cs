@@ -46,10 +46,14 @@ partial class AutoLangSwitcherContext
     Win32.LowLevelProc keyProc, mouseProc;   // kept in fields so the GC does not collect them
     IntPtr keyHook = IntPtr.Zero, mouseHook = IntPtr.Zero;
     SynchronizationContext ui;
-    readonly List<Stroke> word = new List<Stroke>();
+    List<Stroke> word = new List<Stroke>();
     // The words before it, separated by single spaces with nothing else typed in between ("a run").
-    readonly List<TypedWord> history = new List<TypedWord>();
+    List<TypedWord> history = new List<TypedWord>();
     IntPtr wordHwnd = IntPtr.Zero;
+    // The word and run of the window typed in before this one, kept for when the user comes back to it.
+    List<Stroke> savedWord = new List<Stroke>();
+    List<TypedWord> savedHistory = new List<TypedWord>();
+    IntPtr savedHwnd = IntPtr.Zero;
     int keyCount = 0;   // key presses so far; a change means the user typed on after a word ended
 
     // The fix for the last word, waiting for the fix key (suggest mode), or the undo of a fix just made.
@@ -184,12 +188,18 @@ partial class AutoLangSwitcherContext
         try
         {
             int msg = wParam.ToInt32();
-            if (nCode >= 0 && (msg == 0x201 || msg == 0x204 || msg == 0x207) &&   // left, right, middle button down
-                Win32.RootAt(Marshal.ReadInt32(lParam, 0), Marshal.ReadInt32(lParam, 4)) == Win32.RootOf(Win32.GetForegroundWindow()))
+            if (nCode >= 0 && (msg == 0x201 || msg == 0x204 || msg == 0x207))   // left, right, middle button down
             {
-                keyCount++;   // also cancels a word check still waiting to run
-                fixText = null;
-                EndRun();
+                IntPtr root = Win32.RootAt(Marshal.ReadInt32(lParam, 0), Marshal.ReadInt32(lParam, 4));
+                // A click into the window being typed in, even from another window, may move its cursor.
+                if (root == Win32.RootOf(Win32.GetForegroundWindow()) || (wordHwnd != IntPtr.Zero && root == Win32.RootOf(wordHwnd)))
+                {
+                    keyCount++;   // also cancels a word check still waiting to run
+                    fixText = null;
+                    EndRun();
+                }
+                else if (savedHwnd != IntPtr.Zero && root == Win32.RootOf(savedHwnd))
+                    savedHwnd = IntPtr.Zero;   // a click back into the window left may move its cursor
             }
         }
         catch { /* never let a hook callback crash the app */ }
@@ -225,6 +235,7 @@ partial class AutoLangSwitcherContext
         fixText = null;   // typing on: the suggestion no longer applies
         IntPtr fg = Win32.GetForegroundWindow();
         bool altGr = Win32.IsDown(0xA5);   // right Alt, which Windows also reports as Ctrl+Alt
+        if (vk == 0x09 && Win32.IsDown(0x12) && !Win32.IsDown(0x11)) return false;   // Alt+Tab doesn't touch the text
         if (paused || Win32.IsDown(0x5B) || Win32.IsDown(0x5C) || (!altGr && (Win32.IsDown(0x11) || Win32.IsDown(0x12))))
         {
             EndRun();   // paused, or a shortcut: not part of a word
@@ -232,7 +243,15 @@ partial class AutoLangSwitcherContext
         }
         if (fg != wordHwnd)
         {
-            EndRun();
+            // Back in the window typed in just before (Alt+Tab, the taskbar): carry on with its word.
+            List<Stroke> w = word;
+            List<TypedWord> h = history;
+            bool back = fg == savedHwnd;
+            word = back ? savedWord : new List<Stroke>();
+            history = back ? savedHistory : new List<TypedWord>();
+            savedWord = w;
+            savedHistory = h;
+            savedHwnd = wordHwnd;
             wordHwnd = fg;
         }
         if (vk == VK_BACK)

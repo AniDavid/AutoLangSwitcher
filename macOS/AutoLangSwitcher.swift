@@ -213,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func handleActivation(_ app: NSRunningApplication) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(verifySwitch), object: nil)
-        smart.endRun()
+        smart.switched(to: app.processIdentifier)
         expected = nil
         failedSource = nil
         guard let id = app.bundleIdentifier ?? app.executableURL?.lastPathComponent else { return }
