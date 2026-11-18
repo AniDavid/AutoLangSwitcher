@@ -270,10 +270,11 @@ final class SmartSwitch {
         layouts = Self.keyboardLayouts()
     }
 
-    static func keyboardLayouts() -> [KeyLayout] {
+    // all: also the installed layouts that aren't enabled (for the self-test).
+    static func keyboardLayouts(all: Bool = false) -> [KeyLayout] {
         let filter: [String: Any] = [kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String,
                                      kTISPropertyInputSourceIsSelectCapable as String: true]
-        let list = TISCreateInputSourceList(filter as CFDictionary, false)?.takeRetainedValue() as? [TISInputSource] ?? []
+        let list = TISCreateInputSourceList(filter as CFDictionary, all)?.takeRetainedValue() as? [TISInputSource] ?? []
         return list.compactMap { src in
             guard let id = InputSources.property(src, kTISPropertyInputSourceID),
                   let p = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData) else { return nil }
@@ -425,11 +426,11 @@ final class SmartSwitch {
             check(good >= samples.count * 9 / 10, "\(lang) letter statistics accept \(good)/\(samples.count) common words")
         }
 
-        let all = keyboardLayouts()
-        print("keyboard layouts: " + all.map { "\($0.id) (\($0.lang))" }.joined(separator: ", "))
-        guard let en = all.first(where: { twoLetter($0.lang) == "en" }),
-              let he = all.first(where: { twoLetter($0.lang) == "he" }) else {
-            print("skip  English/Hebrew typing tests: both keyboard layouts must be enabled")
+        let all = keyboardLayouts(all: true)
+        print("keyboard layouts: \(all.count) installed")
+        guard let en = all.first(where: { $0.id == "com.apple.keylayout.US" }) ?? all.first(where: { twoLetter($0.lang) == "en" }),
+              let he = all.first(where: { $0.id == "com.apple.keylayout.Hebrew" }) ?? all.first(where: { twoLetter($0.lang) == "he" }) else {
+            print("skip  English/Hebrew typing tests: both keyboard layouts must be installed")
             return fails
         }
         func keys(_ text: String, _ l: KeyLayout) -> [KeyStroke]? {
