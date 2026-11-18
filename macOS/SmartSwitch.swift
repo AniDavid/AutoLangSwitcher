@@ -470,7 +470,14 @@ final class SmartSwitch {
             for w in LetterStats.tables[lang]!.samples {
                 guard let t = typedOn(w, meantOn, typedWith) else { continue }
                 total += 1
-                if isWrongLanguage(t, typedWith.lang, w, meantOn.lang) { found += 1 }
+                if isWrongLanguage(t, typedWith.lang, w, meantOn.lang) {
+                    found += 1
+                } else {   // sample words, not the user's typing: shows why a word was missed
+                    let a = twoLetter(typedWith.lang), b = twoLetter(meantOn.lang)
+                    print("      missed \(w) typed as \(t): dictionary \(String(describing: Spelling.check(typedWith.lang, t))), " +
+                          "real there \(String(describing: isWord(meantOn.lang, w))), here \(String(describing: isWord(typedWith.lang, t))), " +
+                          "margins \(LetterStats.margin(b, w)) / \(LetterStats.margin(a, t))")
+                }
             }
             check(found >= total * 7 / 10, "\(lang) words typed on the wrong layout detected: \(found)/\(total)")
         }
