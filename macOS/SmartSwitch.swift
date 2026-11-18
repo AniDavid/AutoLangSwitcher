@@ -378,8 +378,7 @@ final class SmartSwitch {
         """)
 
     static func words(_ list: String) -> Set<String> {
-        Set(list.split(whereSeparator: { $0 == " " || $0 == "
-" }).map(String.init))
+        Set(list.split(whereSeparator: { $0.isWhitespace }).map(String.init))
     }
 
     // Real 1-2 letter words, for languages whose dictionary accepts almost any one or two letters.
