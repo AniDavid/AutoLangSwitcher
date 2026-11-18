@@ -272,13 +272,20 @@ final class SmartSwitch {
             fixSource = other.id
             fixBackSource = layout.id
             fixIsUndo = false
-            fixOpenEnd = ender.count == 1 && ender != " "
+            fixOpenEnd = ender.count == 1 && ender != " " && thenReturn == nil
             if auto {
                 setFix(meantRun + ender)
                 return applyFix(thenReturn: thenReturn)
             }
             setFix(meantRun + ender, hint: "Fix \u{2192} \(name): \(fixKeyName)")
             return false
+        }
+        // "akuo,": on a Hebrew/English Mac the comma key is also a Hebrew letter, so it went into the
+        // word. Try again with it as punctuation.
+        if current.keys.count > 1, let last = current.keys.last, let c = Self.char(last, layout),
+           Self.wordEnders.contains(c) {
+            return check(TypedWord(keys: Array(current.keys.dropLast()), source: current.source), before, pid, count,
+                         ender: String(c) + ender, thenReturn: thenReturn)
         }
         return false
     }

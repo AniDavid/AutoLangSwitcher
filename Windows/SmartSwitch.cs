@@ -368,6 +368,18 @@ partial class AutoLangSwitcherContext
                 "Typed in the wrong language? Press " + FixKeyName + " to change the last " + what + " to " +
                 Win32.LayoutName(other) + ".");
         }
+        // "akuo,": on a Hebrew/English PC the comma key is also the Hebrew letter tav, so it went into
+        // the word. Try again with it as punctuation.
+        Stroke[] k = current.Keys;
+        char lastChar = k.Length > MinLetters ? CharOf(k[k.Length - 1], layout) : '\0';
+        if (lastChar != '\0' && WordEnders.IndexOf(lastChar) >= 0)
+        {
+            TypedWord shorter = new TypedWord();
+            shorter.Keys = new Stroke[k.Length - 1];
+            Array.Copy(k, shorter.Keys, k.Length - 1);
+            shorter.Layout = layout;
+            return CheckWord(shorter, before, hwnd, count, lastChar + ender, thenKey);
+        }
         return false;
     }
 
@@ -383,7 +395,7 @@ partial class AutoLangSwitcherContext
         fixBackLayout = backLayout;
         fixIsUndo = false;
         fixCapsOff = capsOff;
-        fixOpenEnd = ender.Length == 1 && ender != " ";
+        fixOpenEnd = ender.Length == 1 && ender != " " && thenKey == 0;
         fixUntil = Environment.TickCount + 10000;
         if (smartAuto) return ApplyFix(thenKey);
         tray.ShowBalloonTip(10000, Title, suggestion, ToolTipIcon.Info);
