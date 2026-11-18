@@ -17,7 +17,7 @@ jobs:
         working-directory: macOS
         run: |
           swiftc --version
-          swiftc -O -parse-as-library -o AutoLangSwitcher *.swift -framework Cocoa -framework Carbon
+          swiftc -O -parse-as-library -o AutoLangSwitcher *.swift -framework Cocoa -framework Carbon \n            -Xfrontend -warn-long-expression-type-checking=300
       - name: Self-test (Smart Keyboard Auto Switch word checks)
         working-directory: macOS
         run: ./AutoLangSwitcher --selftest

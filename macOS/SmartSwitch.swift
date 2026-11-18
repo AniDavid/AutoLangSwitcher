@@ -79,10 +79,10 @@ final class SmartSwitch {
             }
             return
         }
-        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue) |
-                   (1 << CGEventType.rightMouseDown.rawValue)
+        var mask: CGEventMask = 0
+        for type in [CGEventType.keyDown, .leftMouseDown, .rightMouseDown] { mask |= CGEventMask(1) << CGEventMask(type.rawValue) }
         guard let t = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                        eventsOfInterest: CGEventMask(mask), callback: smartTapCallback,
+                                        eventsOfInterest: mask, callback: smartTapCallback,
                                         userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
             app.log("smart switch FAILED to start (no event tap)")
             return
@@ -369,18 +369,23 @@ final class SmartSwitch {
 
     // Acronyms and chat abbreviations people type in lower case, and "i". Dictionaries don't know most of
     // them, and letter statistics can't tell them from gibberish ("cmd" looks no more English than "akt").
-    static let abbreviations = Set(
-        ("i ok js ts ai ui ux vs tv pc os ip id pm am db hr pr qa eu uk " +
-         "api sdk cli gui url uri http https html css json xml yaml sql cmd exe dll msi pdf docx xlsx pptx csv txt " +
-         "zip usb ssd hdd cpu gpu ram rom ios wifi vpn dns tcp udp ssh ftp smtp git npm nuget sudo bash apt dev prod " +
-         "ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk tbh etc aka").split(separator: " ").map(String.init))
+    static let abbreviations: Set<String> = words("""
+        i ok js ts ai ui ux vs tv pc os ip id pm am db hr pr qa eu uk
+        api sdk cli gui url uri http https html css json xml yaml sql cmd exe dll msi pdf docx xlsx pptx csv txt
+        zip usb ssd hdd cpu gpu ram rom ios wifi vpn dns tcp udp ssh ftp smtp git npm nuget sudo bash apt dev prod
+        ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk tbh etc aka
+        """)
+
+    static func words(_ list: String) -> Set<String> {
+        Set(list.split(whereSeparator: { $0 == " " || $0 == "
+" }).map(String.init))
+    }
 
     // Real 1-2 letter words, for languages whose dictionary accepts almost any one or two letters.
     // Longer words go to the dictionary.
     static let shortWords: [String: Set<String>] = [
-        "en": Set(("a i ad ah am an as at be by do eh ex go ha he hi hm if in is it me mr ms my no of oh " +
-                   "ok on or ox pi so to uh um up us we ya ye yo").split(separator: " ").map(String.init)),
-        "he": Set("\u{05E9}\u{05DC} \u{05D0}\u{05EA} \u{05D6}\u{05D4} \u{05D6}\u{05D5} \u{05DC}\u{05D0} \u{05DB}\u{05DF} \u{05DE}\u{05D4} \u{05DE}\u{05D9} \u{05E2}\u{05DC} \u{05D0}\u{05DD} \u{05D2}\u{05DD} \u{05E8}\u{05E7} \u{05E2}\u{05DD} \u{05D9}\u{05E9} \u{05D0}\u{05D6} \u{05D3}\u{05D9} \u{05D4}\u{05DD} \u{05D4}\u{05DF} \u{05DC}\u{05D9} \u{05DC}\u{05D5} \u{05DC}\u{05DA} \u{05DC}\u{05D4} \u{05D1}\u{05D5} \u{05D1}\u{05D4} \u{05D1}\u{05D9} \u{05E4}\u{05D4} \u{05E9}\u{05DD} \u{05DB}\u{05DC} \u{05D0}\u{05DA} \u{05DB}\u{05D9} \u{05E0}\u{05D0} \u{05D0}\u{05DC} \u{05D0}\u{05E3} \u{05E2}\u{05D3} \u{05D0}\u{05D9} \u{05D0}\u{05D5} \u{05D1}\u{05DF} \u{05D1}\u{05EA} \u{05D0}\u{05D1} \u{05D0}\u{05D7} \u{05D9}\u{05D3} \u{05E4}\u{05D9} \u{05D7}\u{05D9} \u{05E7}\u{05D5} \u{05E6}\u{05D5} \u{05D2}\u{05DF} \u{05D3}\u{05D2} \u{05D7}\u{05D2} \u{05E2}\u{05E5} \u{05D2}\u{05D1} \u{05D7}\u{05DD} \u{05E7}\u{05E8} \u{05E8}\u{05E2} \u{05E2}\u{05D6} \u{05D0}\u{05E9} \u{05D9}\u{05DD} \u{05D7}\u{05DF} \u{05D2}\u{05DC} \u{05E8}\u{05D1} \u{05D4}\u{05E8} \u{05DB}\u{05E3} \u{05D3}\u{05E3} \u{05E1}\u{05DC} \u{05D2}\u{05E8} \u{05DE}\u{05E1} \u{05EA}\u{05DF} \u{05E7}\u{05D7} \u{05E9}\u{05D1} \u{05E8}\u{05D3} \u{05E6}\u{05D0} \u{05D1}\u{05D0} \u{05D6}\u{05D6} \u{05E0}\u{05E2} \u{05DB}\u{05DA} \u{05D0}\u{05D4} \u{05D3}\u{05DD} \u{05E9}\u{05DF} \u{05DC}\u{05D1} \u{05E2}\u{05D8} \u{05E6}\u{05D1} \u{05EA}\u{05D4} \u{05E1}\u{05D1}".split(separator: " ").map(String.init)),
+        "en": words("a i ad ah am an as at be by do eh ex go ha he hi hm if in is it me mr ms my no of oh ok on or ox pi so to uh um up us we ya ye yo"),
+        "he": words("\u{05E9}\u{05DC} \u{05D0}\u{05EA} \u{05D6}\u{05D4} \u{05D6}\u{05D5} \u{05DC}\u{05D0} \u{05DB}\u{05DF} \u{05DE}\u{05D4} \u{05DE}\u{05D9} \u{05E2}\u{05DC} \u{05D0}\u{05DD} \u{05D2}\u{05DD} \u{05E8}\u{05E7} \u{05E2}\u{05DD} \u{05D9}\u{05E9} \u{05D0}\u{05D6} \u{05D3}\u{05D9} \u{05D4}\u{05DD} \u{05D4}\u{05DF} \u{05DC}\u{05D9} \u{05DC}\u{05D5} \u{05DC}\u{05DA} \u{05DC}\u{05D4} \u{05D1}\u{05D5} \u{05D1}\u{05D4} \u{05D1}\u{05D9} \u{05E4}\u{05D4} \u{05E9}\u{05DD} \u{05DB}\u{05DC} \u{05D0}\u{05DA} \u{05DB}\u{05D9} \u{05E0}\u{05D0} \u{05D0}\u{05DC} \u{05D0}\u{05E3} \u{05E2}\u{05D3} \u{05D0}\u{05D9} \u{05D0}\u{05D5} \u{05D1}\u{05DF} \u{05D1}\u{05EA} \u{05D0}\u{05D1} \u{05D0}\u{05D7} \u{05D9}\u{05D3} \u{05E4}\u{05D9} \u{05D7}\u{05D9} \u{05E7}\u{05D5} \u{05E6}\u{05D5} \u{05D2}\u{05DF} \u{05D3}\u{05D2} \u{05D7}\u{05D2} \u{05E2}\u{05E5} \u{05D2}\u{05D1} \u{05D7}\u{05DD} \u{05E7}\u{05E8} \u{05E8}\u{05E2} \u{05E2}\u{05D6} \u{05D0}\u{05E9} \u{05D9}\u{05DD} \u{05D7}\u{05DF} \u{05D2}\u{05DC} \u{05E8}\u{05D1} \u{05D4}\u{05E8} \u{05DB}\u{05E3} \u{05D3}\u{05E3} \u{05E1}\u{05DC} \u{05D2}\u{05E8} \u{05DE}\u{05E1} \u{05EA}\u{05DF} \u{05E7}\u{05D7} \u{05E9}\u{05D1} \u{05E8}\u{05D3} \u{05E6}\u{05D0} \u{05D1}\u{05D0} \u{05D6}\u{05D6} \u{05E0}\u{05E2} \u{05DB}\u{05DA} \u{05D0}\u{05D4} \u{05D3}\u{05DD} \u{05E9}\u{05DF} \u{05DC}\u{05D1} \u{05E2}\u{05D8} \u{05E6}\u{05D1} \u{05EA}\u{05D4} \u{05E1}\u{05D1}"),
     ]
 
     // True or false, or nil when there is neither a macOS dictionary nor letter statistics.
