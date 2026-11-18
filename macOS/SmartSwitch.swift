@@ -418,7 +418,11 @@ final class SmartSwitch {
             check(Spelling.check("en", "hello") == true, "English dictionary knows 'hello'")
             check(Spelling.check("en", "akuo") == false, "English dictionary rejects 'akuo'")
         }
-        if let he = Spelling.check("he", shalom) { check(he, "Hebrew dictionary knows shalom") }
+        if let he = Spelling.check("he", shalom) {
+            check(he, "Hebrew dictionary knows shalom")
+        } else {
+            print("      no usable Hebrew dictionary: Hebrew uses letter statistics")
+        }
         for lang in LetterStats.tables.keys.sorted() {
             let samples = LetterStats.tables[lang]!.samples
             let good = samples.filter { LetterStats.margin(lang, $0) <= 0 }.count
@@ -495,8 +499,16 @@ enum Spelling {
         if let known = languages[lang] { return known }
         let available = NSSpellChecker.shared.availableLanguages
         let two = SmartSwitch.twoLetter(lang)
-        let found = available.first { $0 == lang } ?? available.first { $0 == two } ??
+        var found = available.first { $0 == lang } ?? available.first { $0 == two } ??
             available.first { SmartSwitch.twoLetter($0) == two }
+        // Some dictionaries accept anything (macOS's Hebrew one accepts gibberish): if it accepts a
+        // nonsense word made of the language's letters, use the letter statistics instead.
+        if let l = found, let alphabet = LetterStats.tables[two]?.alphabet, let first = alphabet.first, let last = alphabet.last {
+            let nonsense = String(repeating: String(first), count: 4) + String(repeating: String(last), count: 3)
+            let r = NSSpellChecker.shared.checkSpelling(of: nonsense, startingAt: 0, language: l, wrap: false,
+                                                        inSpellDocumentWithTag: 0, wordCount: nil)
+            if r.location == NSNotFound { found = nil }
+        }
         languages[lang] = found
         return found
     }
