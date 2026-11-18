@@ -163,6 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var logView: NSTextView?
     var smartBox: NSButton?
     var smartRadios: [NSButton] = []   // only suggest, fix automatically
+    var smartKeyPopup: NSPopUpButton?
+    var keepView: NSTextView?
 
     lazy var smart = SmartSwitch(app: self)
 
@@ -211,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func handleActivation(_ app: NSRunningApplication) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(verifySwitch), object: nil)
-        smart.endRun()
+        smart.switched(to: app.processIdentifier)
         expected = nil
         failedSource = nil
         guard let id = app.bundleIdentifier ?? app.executableURL?.lastPathComponent else { return }
@@ -475,7 +477,9 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         pauseBox?.state = paused ? .on : .off
         switch settingsTabs?.selectedTabViewItem?.identifier as? String {
         case "Apps": fillApps()
-        case "General": loginBox?.state = loginEnabled ? .on : .off
+        case "General":
+            loginBox?.state = loginEnabled ? .on : .off
+            keepView?.string = smart.keepWordsText   // a fix undone since adds words
         case "Saved list": fillSavedList()
         case "Log": fillLog()
         default: break
@@ -603,20 +607,38 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         loginBox = login
         let smartOn = NSButton(checkboxWithTitle: "Smart Keyboard Auto Switch: fix words typed in the wrong input source",
                                target: self, action: #selector(smartChanged(_:)))
-        let note = NSTextField(wrappingLabelWithString: "Reads your typing to check each finished word. Nothing is saved or sent. " +
+        let note = NSTextField(wrappingLabelWithString: "Reads your typing to check each finished word. Nothing is saved or sent, except the list below. " +
                                "Needs the Accessibility permission.")
         note.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 440
         // Radio buttons with the same action in the same view work as one group.
-        let suggest = NSButton(radioButtonWithTitle: "Only suggest (press \(SmartSwitch.fixKeyName) to fix the word)",
+        let suggest = NSButton(radioButtonWithTitle: "Only suggest (press the fix key to fix the word)",
                                target: self, action: #selector(smartChanged(_:)))
         let auto = NSButton(radioButtonWithTitle: "Fix automatically", target: self, action: #selector(smartChanged(_:)))
         smartOn.state = smart.on ? .on : .off
         (smart.auto ? auto : suggest).state = .on
         smartBox = smartOn
         smartRadios = [suggest, auto]
-        let smartGroup = NSStackView(views: [note, suggest, auto])
+        let keyPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        keyPopup.addItems(withTitles: SmartSwitch.fixKeys.map { $0.name })
+        keyPopup.selectItem(at: smart.fixKey)
+        keyPopup.target = self
+        keyPopup.action = #selector(smartChanged(_:))
+        smartKeyPopup = keyPopup
+        let keyRow = NSStackView(views: [NSTextField(labelWithString: "Fix key (also undoes a fix):"), keyPopup])
+        let keepLabel = NSTextField(wrappingLabelWithString: "Never change these words (as they appear when typed; words you undo are added here):")
+        keepLabel.preferredMaxLayoutWidth = 440
+        let (keepScroll, keepText) = makeTextView()
+        keepText.isEditable = true
+        keepText.string = smart.keepWordsText
+        keepView = keepText
+        keepScroll.borderType = .bezelBorder
+        keepScroll.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([keepScroll.widthAnchor.constraint(equalToConstant: 320),
+                                     keepScroll.heightAnchor.constraint(equalToConstant: 70)])
+        let saveKeep = NSButton(title: "Save list", target: self, action: #selector(saveKeepWords))
+        let smartGroup = NSStackView(views: [note, suggest, auto, keyRow, keepLabel, keepScroll, saveKeep])
         smartGroup.orientation = .vertical
         smartGroup.alignment = .leading
         smartGroup.spacing = 6
@@ -640,13 +662,21 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         setPaused(sender.state == .on)   // also updates the menu bar item
     }
 
-    @objc func smartChanged(_ sender: NSButton) {
-        smart.set(on: smartBox?.state == .on, auto: smartRadios.last?.state == .on)
+    @objc func smartChanged(_ sender: Any) {
+        smart.set(on: smartBox?.state == .on, auto: smartRadios.last?.state == .on,
+                  key: max(smartKeyPopup?.indexOfSelectedItem ?? 0, 0))
         updateSmartControls()
     }
 
     func updateSmartControls() {
         smartRadios.forEach { $0.isEnabled = smart.on }
+        smartKeyPopup?.isEnabled = smart.on
+        keepView?.isEditable = smart.on
+    }
+
+    @objc func saveKeepWords() {
+        smart.setKeepWords(keepView?.string ?? "")
+        keepView?.string = smart.keepWordsText
     }
 
     @objc func loginBoxClicked(_ sender: NSButton) {
@@ -749,15 +779,15 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         Unless you turn on Smart Keyboard Auto Switch (below), it never reads what you type.
 
         SMART KEYBOARD AUTO SWITCH (optional, off unless you turn it on)
-        Typed "akuo" when you meant the Hebrew word shalom? Turn this on in General. When you finish a word with Space, AutoLangSwitcher checks whether the same keys make a real word in another of your enabled input sources. If they do, it either:
-          - Only suggests: the fix appears next to the menu bar icon; press Control+Option+Z within 10 seconds to retype the word, or
-          - Fixes it automatically.
+        Typed "akuo" when you meant the Hebrew word shalom? Turn this on in General. When you finish a word (with Space, punctuation like , . ? !, or Return), AutoLangSwitcher checks whether the same keys make a real word in another of your enabled input sources. If they do, it either:
+          - Only suggests: the fix appears next to the menu bar icon; press the fix key (Control+Option+Z unless you chose another in General) within 10 seconds to retype the word, or
+          - Fixes it automatically. A word ended with Return is fixed before the Return goes through, so a chat message is sent already fixed. (When only suggesting, words ended with Return aren't checked: the message would already be sent.)
         Either way it also switches the input source.
           - It checks words with the spelling dictionaries built into macOS, plus built-in letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your enabled input sources are used, and nothing is downloaded.
           - Short words that are real in both languages are decided by context: up to 3 earlier words are fixed together with a clearly wrong word ("do akuo" becomes "gam shalom"), while in "I went to akuo" the English "to" stays.
-          - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press Control+Option+Z right away to put it back; that word is then left alone until AutoLangSwitcher quits.
+          - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press the fix key right away to put it back. That word goes on the "Never change these words" list in General, where you can also add or remove words.
           - macOS asks you to allow AutoLangSwitcher under System Settings > Privacy & Security > Accessibility. It is needed to read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.
-          - Privacy: the letters of the current word stay in memory only until you finish it. Nothing is saved, logged or sent. Password fields are never read (macOS hides them from all apps). While the feature is off, AutoLangSwitcher doesn't read your typing at all.
+          - Privacy: the letters of the current word stay in memory only until you finish it. Nothing is logged or sent, and only the never-change list is saved (in the app's preferences). Password fields are never read (macOS hides them from all apps). While the feature is off, AutoLangSwitcher doesn't read your typing at all.
 
         THE TABS
           Apps: the apps it remembers. Select some and click Remove to forget them.

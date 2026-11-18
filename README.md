@@ -72,14 +72,18 @@ While **Caps Lock** is on, the tray keyboard turns orange and shows a capital **
 
 **Smart Keyboard Auto Switch** (Windows and macOS, off by default; turn it on in **Settings → General**)
 
-Typed "akuo" when you meant "שלום"? When you finish a word with Space, AutoLangSwitcher checks whether the same keys make a real word in another of your installed keyboard languages. If they do, it either suggests the fix (press **Pause/Break** within 10 seconds to retype the word) or fixes it automatically, whichever you choose. It also switches the keyboard to that language.
+Typed "akuo" when you meant "שלום"? When you finish a word (with Space, punctuation like `, . ? !`, or Enter), AutoLangSwitcher checks whether the same keys make a real word in another of your installed keyboard languages. If they do, it either suggests the fix (press the **fix key** within 10 seconds to retype the word) or fixes it automatically, whichever you choose. It also switches the keyboard to that language.
+
+- The fix key is **Pause/Break** by default; on the General tab you can choose Scroll Lock, Insert or Ctrl+Shift+Z instead.
+- In **Fix automatically** mode, a word ended with Enter is fixed before the Enter goes through, so a chat message is sent already fixed. (In suggest mode, words ended with Enter aren't checked, because the message would already be sent.)
 
 - It checks words with the spelling dictionaries built into Windows, plus built-in letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your installed keyboard languages are used, and nothing is downloaded.
 - Short words that are real in both languages (English "do" is the Hebrew word "גם" on the same keys) are decided by context: up to 3 earlier words are fixed together with a clearly wrong word, so "do akuo" becomes "גם שלום", while "I went to akuo" keeps its English "to".
-- Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press **Pause/Break** right away to put it back; that word is then left alone until AutoLangSwitcher restarts.
-- To work, it has to read your typing. The letters of the current word stay in memory only until you finish it: nothing is saved, logged or sent. While the feature is off, AutoLangSwitcher doesn't read your typing at all.
+- Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press the fix key right away to put it back. That word goes on the **Never change these words** list on the General tab, where you can also add or remove words yourself.
+- Typed "hELLO" because Caps Lock was on by mistake? It's fixed to "Hello" (or suggested) and Caps Lock is turned off. (Windows only: on a Mac, Shift with Caps Lock still types capitals.)
+- To work, it has to read your typing. The letters of the current word stay in memory only until you finish it: nothing is logged or sent, and the only thing saved is the never-change list. While the feature is off, AutoLangSwitcher doesn't read your typing at all.
 - Some antivirus programs are suspicious of any app that reads typing. If yours complains, turn the feature off.
-- **On macOS** the fix key is **Control+Option+Z** (Macs have no Pause/Break key), the suggestion appears next to the menu bar icon, and macOS asks you to allow AutoLangSwitcher under System Settings → Privacy & Security → **Accessibility**. After rebuilding the app, macOS may ask again: remove the old entry and allow the new one.
+- **On macOS** the fix key is **Control+Option+Z** by default (Macs have no Pause/Break key; you can choose Control+Option+X, Control+Option+F or F13), the suggestion appears next to the menu bar icon, and macOS asks you to allow AutoLangSwitcher under System Settings → Privacy & Security → **Accessibility**. After rebuilding the app, macOS may ask again: remove the old entry and allow the new one.
 
 If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu or on the **General** tab. Settings are saved in `%APPDATA%\AutoLangSwitcher\layouts.txt`.
 

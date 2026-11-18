@@ -176,6 +176,14 @@ static class Win32
         if (shift) state[0x10] = 0x80;
         if (altGr) { state[0x11] = 0x80; state[0x12] = 0x80; }
         if (caps) state[0x14] = 0x01;
+        // The virtual key depends on the layout it was typed with (AZERTY's A key sends VK_A where QWERTY
+        // has Q), so take the key that sits at the same place in `hkl`. Numpad keys keep theirs:
+        // their scan codes map to Home, End... regardless of Num Lock.
+        if (sc != 0 && (vk < 0x60 || vk > 0x6F))
+        {
+            uint there = MapVirtualKeyEx(sc, 3 /* MAPVK_VSC_TO_VK_EX */, hkl);
+            if (there != 0) vk = there;
+        }
         StringBuilder sb = new StringBuilder(8);
         int n = ToUnicodeEx(vk, sc, state, sb, sb.Capacity, 4 /* leave the dead-key state alone */, hkl);
         return n == 1 ? sb[0] : '\0';
@@ -190,7 +198,8 @@ static class Win32
     }
 
     // Presses Backspace `erase` times, then types text as Unicode characters (whatever the layout).
-    public static void Retype(int erase, string text)
+    // Erases `erase` characters, types `text`, then presses `thenKeys` (virtual-key codes).
+    public static void Retype(int erase, string text, params ushort[] thenKeys)
     {
         List<INPUT> inputs = new List<INPUT>();
         for (int i = 0; i < erase; i++)
@@ -202,6 +211,11 @@ static class Win32
         {
             inputs.Add(Key(0, c, KEYEVENTF_UNICODE));
             inputs.Add(Key(0, c, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+        }
+        foreach (ushort vk in thenKeys)
+        {
+            inputs.Add(Key(vk, (char)0, 0));
+            inputs.Add(Key(vk, (char)0, KEYEVENTF_KEYUP));
         }
         SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
     }
