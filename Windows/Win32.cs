@@ -176,6 +176,14 @@ static class Win32
         if (shift) state[0x10] = 0x80;
         if (altGr) { state[0x11] = 0x80; state[0x12] = 0x80; }
         if (caps) state[0x14] = 0x01;
+        // The virtual key depends on the layout it was typed with (AZERTY's A key sends VK_A where QWERTY
+        // has Q), so take the key that sits at the same place in `hkl`. Numpad keys keep theirs:
+        // their scan codes map to Home, End... regardless of Num Lock.
+        if (sc != 0 && (vk < 0x60 || vk > 0x6F))
+        {
+            uint there = MapVirtualKeyEx(sc, 3 /* MAPVK_VSC_TO_VK_EX */, hkl);
+            if (there != 0) vk = there;
+        }
         StringBuilder sb = new StringBuilder(8);
         int n = ToUnicodeEx(vk, sc, state, sb, sb.Capacity, 4 /* leave the dead-key state alone */, hkl);
         return n == 1 ? sb[0] : '\0';

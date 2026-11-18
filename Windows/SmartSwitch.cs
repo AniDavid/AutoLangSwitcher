@@ -606,6 +606,10 @@ partial class AutoLangSwitcherContext
         }
         Stroke[] akuo = KeysOf("akuo", en);
         check(TextOf(akuo, he) == shalom, "keys a-k-u-o on the Hebrew layout give shalom");
+        // AZERTY sends VK_A from the key where QWERTY has Q; on Hebrew that key is '/', not shin.
+        Stroke azertyA = KeysOf("a", en)[0];
+        azertyA.Sc = KeysOf("q", en)[0].Sc;
+        check(CharOf(azertyA, he) == '/', "keys are converted by position, so AZERTY and other layouts work");
         check(IsWrongLanguage("akuo", LangOf(en), shalom, LangOf(he)), "'akuo' is detected as Hebrew typed on English");
         check(IsWrongLanguage(TextOf(KeysOf("i", en), he), LangOf(he), "i", LangOf(en)), "'i' typed on the Hebrew keyboard is caught");
         foreach (string w in new string[] { "hello", "api", "london", "json", "cmd" })

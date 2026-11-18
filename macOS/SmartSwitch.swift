@@ -136,7 +136,15 @@ final class SmartSwitch {
         guard let letter = k.letter else { return Int(code) == k.code }
         guard flags.contains(.maskControl), flags.contains(.maskAlternate), !flags.contains(.maskCommand) else { return false }
         let s = KeyStroke(code: code, shift: false, option: false, caps: false)
-        return layouts.contains { l in Self.char(s, l).map { String($0).lowercased() } == letter }
+        // The letter as the current layout places it (AZERTY's Z is QWERTY's W); a layout without
+        // Latin letters, like Hebrew, falls back to any layout that has it.
+        func z(_ l: KeyLayout) -> Bool { Self.char(s, l).map { String($0).lowercased() } == letter }
+        if let cur = layouts.first(where: { $0.id == InputSources.currentID() }),
+           (0..<128).contains(where: { Self.char(KeyStroke(code: UInt16($0), shift: false, option: false, caps: false), cur)
+                                        .map { String($0).lowercased() } == letter }) {
+            return z(cur)
+        }
+        return layouts.contains(where: z)
     }
 
     // Returns true to swallow the event: the fix key when it applies a fix, or Return when a fix comes first.
