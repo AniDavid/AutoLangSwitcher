@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -86,11 +87,25 @@ static class Win32
 
     public static bool IsInstalled(IntPtr hkl)
     {
+        return Array.IndexOf(Layouts(), hkl) >= 0;
+    }
+
+    public static IntPtr[] Layouts()
+    {
         int n = GetKeyboardLayoutList(0, null);
-        if (n <= 0) return false;
-        IntPtr[] list = new IntPtr[n];
-        GetKeyboardLayoutList(n, list);
-        return Array.IndexOf(list, hkl) >= 0;
+        IntPtr[] list = new IntPtr[Math.Max(n, 0)];
+        if (n > 0) GetKeyboardLayoutList(n, list);
+        return list;
+    }
+
+    // The control that has keyboard focus in hwnd's thread, or IntPtr.Zero.
+    static IntPtr FocusOf(IntPtr hwnd)
+    {
+        uint pid;
+        uint tid = GetWindowThreadProcessId(hwnd, out pid);
+        GUITHREADINFO gi = new GUITHREADINFO();
+        gi.cbSize = Marshal.SizeOf(typeof(GUITHREADINFO));
+        return GetGUIThreadInfo(tid, ref gi) ? gi.hwndFocus : IntPtr.Zero;
     }
 
     // Asks the window to switch layout. Sends the request to the top-level window (the standard
@@ -100,13 +115,105 @@ static class Win32
     {
         bool ok = PostMessage(hwnd, WM_INPUTLANGCHANGEREQUEST, IntPtr.Zero, hkl);
         error = ok ? 0 : Marshal.GetLastWin32Error();
-        uint pid;
-        uint tid = GetWindowThreadProcessId(hwnd, out pid);
-        GUITHREADINFO gi = new GUITHREADINFO();
-        gi.cbSize = Marshal.SizeOf(typeof(GUITHREADINFO));
-        if (GetGUIThreadInfo(tid, ref gi) && gi.hwndFocus != IntPtr.Zero && gi.hwndFocus != hwnd)
-            PostMessage(gi.hwndFocus, WM_INPUTLANGCHANGEREQUEST, IntPtr.Zero, hkl);
+        IntPtr focus = FocusOf(hwnd);
+        if (focus != IntPtr.Zero && focus != hwnd)
+            PostMessage(focus, WM_INPUTLANGCHANGEREQUEST, IntPtr.Zero, hkl);
         return ok;
+    }
+
+    // ---------------------------------------------------------------- Smart Keyboard Auto Switch
+    public delegate IntPtr LowLevelProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Explicit)]
+    struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct INPUT { public uint type; public InputUnion u; }
+
+    public const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14;
+    public const uint LLKHF_INJECTED = 0x10;
+    const uint INPUT_KEYBOARD = 1, KEYEVENTF_KEYUP = 2, KEYEVENTF_UNICODE = 4;
+    const int GWL_STYLE = -16, ES_PASSWORD = 0x20;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelProc fn, IntPtr hMod, uint threadId);
+    [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+
+    // The top-level window under a screen point.
+    public static IntPtr RootAt(int x, int y)
+    {
+        POINT pt = new POINT();
+        pt.x = x;
+        pt.y = y;
+        return RootOf(WindowFromPoint(pt));
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern short VkKeyScanEx(char ch, IntPtr hkl);
+    [DllImport("user32.dll")] public static extern uint MapVirtualKeyEx(uint code, uint mapType, IntPtr hkl);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int ToUnicodeEx(uint vk, uint sc, byte[] state, [Out] StringBuilder buf, int size, uint flags, IntPtr hkl);
+    [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    public static bool IsDown(int vk)
+    {
+        return (GetAsyncKeyState(vk) & 0x8000) != 0;
+    }
+
+    // The character a key makes in a layout, or '\0' (no character, a dead key, or more than one).
+    public static char CharOf(uint vk, uint sc, bool shift, bool altGr, bool caps, IntPtr hkl)
+    {
+        byte[] state = new byte[256];
+        if (shift) state[0x10] = 0x80;
+        if (altGr) { state[0x11] = 0x80; state[0x12] = 0x80; }
+        if (caps) state[0x14] = 0x01;
+        StringBuilder sb = new StringBuilder(8);
+        int n = ToUnicodeEx(vk, sc, state, sb, sb.Capacity, 4 /* leave the dead-key state alone */, hkl);
+        return n == 1 ? sb[0] : '\0';
+    }
+
+    // Classic password boxes only; password fields inside browsers can't be detected this way.
+    public static bool IsPasswordBox(IntPtr hwnd)
+    {
+        IntPtr focus = FocusOf(hwnd);
+        return focus != IntPtr.Zero && (GetWindowLong(focus, GWL_STYLE) & ES_PASSWORD) != 0 &&
+            ClassNameOf(focus).IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    // Presses Backspace `erase` times, then types text as Unicode characters (whatever the layout).
+    public static void Retype(int erase, string text)
+    {
+        List<INPUT> inputs = new List<INPUT>();
+        for (int i = 0; i < erase; i++)
+        {
+            inputs.Add(Key(0x08, '\0', 0));
+            inputs.Add(Key(0x08, '\0', KEYEVENTF_KEYUP));
+        }
+        foreach (char c in text)
+        {
+            inputs.Add(Key(0, c, KEYEVENTF_UNICODE));
+            inputs.Add(Key(0, c, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+        }
+        SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
+    }
+
+    static INPUT Key(ushort vk, char scan, uint flags)
+    {
+        INPUT input = new INPUT();
+        input.type = INPUT_KEYBOARD;
+        input.u.ki.wVk = vk;
+        input.u.ki.wScan = scan;
+        input.u.ki.dwFlags = flags;
+        return input;
     }
 
     // Lower-case exe file name of the app that owns the window, or null.

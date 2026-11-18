@@ -99,11 +99,13 @@ partial class AutoLangSwitcherContext : ApplicationContext
         saveTimer.Start();
 
         OnForeground(Win32.GetForegroundWindow());
+        LoadSmartSettings();
     }
 
     protected override void ExitThreadCore()
     {
         if (hook != IntPtr.Zero) Win32.UnhookWinEvent(hook);
+        StopSmart();
         pollTimer.Stop();
         saveTimer.Stop();
         if (dirty) Save();

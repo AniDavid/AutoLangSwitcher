@@ -16,7 +16,7 @@ using System.Reflection;
 using System.Windows.Forms;
 
 // The one place the version is set: shown in About, and the installer reads it from the exe.
-[assembly: AssemblyVersion("1.0.3")]
+[assembly: AssemblyVersion("1.1.0")]
 [assembly: AssemblyTitle("AutoLangSwitcher")]
 
 static class Program
@@ -29,6 +29,13 @@ static class Program
     {
         bool restarted = HasArg(args, "--restarted");    // relaunched by "Restart as administrator"
         bool noElevate = HasArg(args, "--no-elevate");   // never show the admin prompt
+
+        // Checks Smart Keyboard Auto Switch; run with the output piped, e.g. AutoLangSwitcher.exe --selftest | more
+        if (HasArg(args, "--selftest"))
+        {
+            Environment.Exit(AutoLangSwitcherContext.SmartSelfTest(Console.Out));
+            return;
+        }
 
         // Two copies (or the old KeyboardMemory.exe and this one) would fight over the layout.
         if (IsAlreadyRunning(LegacyMutexName) || (!restarted && IsAlreadyRunning(MutexName)))

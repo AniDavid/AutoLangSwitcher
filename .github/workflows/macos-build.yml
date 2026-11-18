@@ -1,5 +1,5 @@
 # Compiles the macOS app on a GitHub Mac, since the author doesn't have one.
-# Only checks that it compiles; it doesn't test how the app behaves.
+# Checks that it compiles and runs the word-check self-test; it doesn't test the rest of the app.
 name: macOS build
 
 on:
@@ -17,4 +17,7 @@ jobs:
         working-directory: macOS
         run: |
           swiftc --version
-          swiftc -O -parse-as-library -o AutoLangSwitcher AutoLangSwitcher.swift -framework Cocoa -framework Carbon
+          swiftc -O -parse-as-library -o AutoLangSwitcher *.swift -framework Cocoa -framework Carbon
+      - name: Self-test (Smart Keyboard Auto Switch word checks)
+        working-directory: macOS
+        run: ./AutoLangSwitcher --selftest

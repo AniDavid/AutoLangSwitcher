@@ -4,7 +4,7 @@
 // Build: ./build.sh  (needs Apple's Command Line Tools: xcode-select --install)
 // Data:  stored in the app's preferences (defaults domain com.autolangswitcher.app).
 //        Until the first change, the old com.keyboardmemory.app preferences are read instead.
-// One file on purpose, so build.sh stays a single swiftc call; the program starts at Main (bottom).
+// Smart Keyboard Auto Switch is in SmartSwitch.swift. The program starts at Main (bottom).
 
 import Cocoa
 import Carbon
@@ -161,6 +161,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var loginBox: NSButton?
     var savedListView: NSTextView?
     var logView: NSTextView?
+    var smartBox: NSButton?
+    var smartRadios: [NSButton] = []   // only suggest, fix automatically
+
+    lazy var smart = SmartSwitch(app: self)
 
     func launchAgentURL(_ label: String) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -183,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? [:]
         migrateLaunchAgent()
         setupMenu()
+        smart.load()
         log("started, \(map.count) app(s) loaded")
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -206,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func handleActivation(_ app: NSRunningApplication) {
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(verifySwitch), object: nil)
+        smart.endRun()
         expected = nil
         failedSource = nil
         guard let id = app.bundleIdentifier ?? app.executableURL?.lastPathComponent else { return }
@@ -595,7 +601,28 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let login = NSButton(checkboxWithTitle: "Start at Login", target: self, action: #selector(loginBoxClicked(_:)))
         pauseBox = pause
         loginBox = login
-        let stack = NSStackView(views: [pause, login])
+        let smartOn = NSButton(checkboxWithTitle: "Smart Keyboard Auto Switch: fix words typed in the wrong input source",
+                               target: self, action: #selector(smartChanged(_:)))
+        let note = NSTextField(wrappingLabelWithString: "Reads your typing to check each finished word. Nothing is saved or sent. " +
+                               "Needs the Accessibility permission.")
+        note.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        note.textColor = .secondaryLabelColor
+        note.preferredMaxLayoutWidth = 440
+        // Radio buttons with the same action in the same view work as one group.
+        let suggest = NSButton(radioButtonWithTitle: "Only suggest (press \(SmartSwitch.fixKeyName) to fix the word)",
+                               target: self, action: #selector(smartChanged(_:)))
+        let auto = NSButton(radioButtonWithTitle: "Fix automatically", target: self, action: #selector(smartChanged(_:)))
+        smartOn.state = smart.on ? .on : .off
+        (smart.auto ? auto : suggest).state = .on
+        smartBox = smartOn
+        smartRadios = [suggest, auto]
+        let smartGroup = NSStackView(views: [note, suggest, auto])
+        smartGroup.orientation = .vertical
+        smartGroup.alignment = .leading
+        smartGroup.spacing = 6
+        smartGroup.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 0)
+        updateSmartControls()
+        let stack = NSStackView(views: [pause, login, smartOn, smartGroup])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -611,6 +638,15 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     @objc func pauseBoxClicked(_ sender: NSButton) {
         setPaused(sender.state == .on)   // also updates the menu bar item
+    }
+
+    @objc func smartChanged(_ sender: NSButton) {
+        smart.set(on: smartBox?.state == .on, auto: smartRadios.last?.state == .on)
+        updateSmartControls()
+    }
+
+    func updateSmartControls() {
+        smartRadios.forEach { $0.isEnabled = smart.on }
     }
 
     @objc func loginBoxClicked(_ sender: NSButton) {
@@ -645,7 +681,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let refresh = NSButton(title: "Refresh", target: self, action: #selector(fillLog))
         let copy = NSButton(title: "Copy all", target: self, action: #selector(copyLog))
         let clear = NSButton(title: "Clear", target: self, action: #selector(clearLog))
-        let legend = NSTextField(labelWithString: "Blue: you switched   Green: app switched   Gray: focus   Red: problem")
+        let legend = NSTextField(labelWithString: "Blue: you switched   Green: app switched   Purple: smart switch   Gray: focus   Red: problem")
         legend.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         legend.textColor = .secondaryLabelColor
         return page(scroll, [refresh, copy, clear, legend])
@@ -668,6 +704,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         if line.contains("FAILED") || line.contains("not enabled") { return .systemRed }
         if line.contains("  manual switch ") || line.contains("  remember ") { return .systemBlue }
         if line.contains("  auto switch ") { return .systemGreen }
+        if line.contains("  smart switch ") { return .systemPurple }
         if line.contains("  focus ") { return .secondaryLabelColor }
         return .labelColor
     }
@@ -709,11 +746,22 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
           3. About half a second later it checks that the switch worked, and asks again if it didn't.
           4. macOS also tells it whenever you change the input source, so your choice is remembered right away for the app in front.
 
-        It never reads what you type, and it does not fix text typed in the wrong language.
+        Unless you turn on Smart Keyboard Auto Switch (below), it never reads what you type.
+
+        SMART KEYBOARD AUTO SWITCH (optional, off unless you turn it on)
+        Typed "akuo" when you meant the Hebrew word shalom? Turn this on in General. When you finish a word with Space, AutoLangSwitcher checks whether the same keys make a real word in another of your enabled input sources. If they do, it either:
+          - Only suggests: the fix appears next to the menu bar icon; press Control+Option+Z within 10 seconds to retype the word, or
+          - Fixes it automatically.
+        Either way it also switches the input source.
+          - It checks words with the spelling dictionaries built into macOS, plus built-in letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your enabled input sources are used, and nothing is downloaded.
+          - Short words that are real in both languages are decided by context: up to 3 earlier words are fixed together with a clearly wrong word ("do akuo" becomes "gam shalom"), while in "I went to akuo" the English "to" stays.
+          - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press Control+Option+Z right away to put it back; that word is then left alone until AutoLangSwitcher quits.
+          - macOS asks you to allow AutoLangSwitcher under System Settings > Privacy & Security > Accessibility. It is needed to read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.
+          - Privacy: the letters of the current word stay in memory only until you finish it. Nothing is saved, logged or sent. Password fields are never read (macOS hides them from all apps). While the feature is off, AutoLangSwitcher doesn't read your typing at all.
 
         THE TABS
           Apps: the apps it remembers. Select some and click Remove to forget them.
-          General: pause it, and start it when you log in.
+          General: pause it, start it when you log in, and turn on Smart Keyboard Auto Switch.
           Saved list: the remembered list, as stored in the app's preferences.
           Log: what it has been doing. Blue lines are switches you made, green lines are switches it made, red lines are problems.
 
@@ -734,6 +782,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 struct Main {
     @MainActor static func main() {
         let app = NSApplication.shared
+        if CommandLine.arguments.contains("--selftest") { exit(SmartSwitch.selfTest()) }
         let delegate = AppDelegate()
         app.delegate = delegate                // NSApplication holds its delegate weakly
         app.setActivationPolicy(.accessory)    // menu bar only, no Dock icon

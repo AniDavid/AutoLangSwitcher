@@ -8,7 +8,7 @@ If you write in more than one language, you probably use a different keyboard la
 
 AutoLangSwitcher fixes this. It runs quietly in the background and remembers the last keyboard language you used in each program. When you switch back to that program, it switches the keyboard back for you.
 
-It does not watch what you type or fix text typed in the wrong language. It only restores each program's language.
+By default it does not read what you type; it only restores each program's language. You can also turn on **Smart Keyboard Auto Switch**, which fixes words typed in the wrong language (see below).
 
 ## בעברית
 
@@ -16,7 +16,9 @@ It does not watch what you type or fix text typed in the wrong language. It only
 
 כותבים גם בעברית וגם באנגלית? AutoLangSwitcher זוכרת את שפת המקלדת האחרונה שבחרתם בכל תוכנה, ומחזירה אותה אוטומטית כשאתם חוזרים לאותה תוכנה. למשל, עברית בוואטסאפ ובוורד, ואנגלית בעורך הקוד ובטרמינל. בלי להקליד שורה של ג'יבריש ולגלות רק אחר כך שהשפה לא נכונה.
 
-אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. התוכנה לא קוראת את מה שאתם מקלידים.
+אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. כברירת מחדל התוכנה לא קוראת את מה שאתם מקלידים.
+
+אפשר גם להפעיל את **Smart Keyboard Auto Switch** (כבוי כברירת מחדל): הקלדתם "akuo" במקום "שלום"? התוכנה תציע לתקן את המילה, או תתקן אותה לבד, ותחליף את שפת המקלדת. כדי לעשות את זה היא קוראת את ההקלדה, אבל לא שומרת ולא שולחת שום דבר.
 
 **להורדה ל-Windows:** [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi). התוכנה עדיין לא חתומה דיגיטלית, ולכן Windows תציג אזהרה. לחצו על **More info** ואז על **Run anyway**.
 
@@ -63,10 +65,21 @@ While **Caps Lock** is on, the tray keyboard turns orange and shows a capital **
 | Tab | What it shows |
 |---|---|
 | **Apps** | Each remembered program and its language. Select programs and click **Remove** to forget them, or **Remove all**. |
-| **General** | **Pause**, **Start with Windows**, and whether AutoLangSwitcher is running as administrator. |
+| **General** | **Pause**, **Start with Windows**, **Smart Keyboard Auto Switch**, and whether AutoLangSwitcher is running as administrator. |
 | **Settings file** | The saved list, exactly as stored on disk. |
 | **Log** | What AutoLangSwitcher has been doing. Useful if something doesn't work: **Copy all** and paste it into an issue. |
 | **Help** | A short user manual and how AutoLangSwitcher works. |
+
+**Smart Keyboard Auto Switch** (Windows and macOS, off by default; turn it on in **Settings → General**)
+
+Typed "akuo" when you meant "שלום"? When you finish a word with Space, AutoLangSwitcher checks whether the same keys make a real word in another of your installed keyboard languages. If they do, it either suggests the fix (press **Pause/Break** within 10 seconds to retype the word) or fixes it automatically, whichever you choose. It also switches the keyboard to that language.
+
+- It checks words with the spelling dictionaries built into Windows, plus built-in letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your installed keyboard languages are used, and nothing is downloaded.
+- Short words that are real in both languages (English "do" is the Hebrew word "גם" on the same keys) are decided by context: up to 3 earlier words are fixed together with a clearly wrong word, so "do akuo" becomes "גם שלום", while "I went to akuo" keeps its English "to".
+- Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press **Pause/Break** right away to put it back; that word is then left alone until AutoLangSwitcher restarts.
+- To work, it has to read your typing. The letters of the current word stay in memory only until you finish it: nothing is saved, logged or sent. While the feature is off, AutoLangSwitcher doesn't read your typing at all.
+- Some antivirus programs are suspicious of any app that reads typing. If yours complains, turn the feature off.
+- **On macOS** the fix key is **Control+Option+Z** (Macs have no Pause/Break key), the suggestion appears next to the menu bar icon, and macOS asks you to allow AutoLangSwitcher under System Settings → Privacy & Security → **Accessibility**. After rebuilding the app, macOS may ask again: remove the old entry and allow the new one.
 
 If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu or on the **General** tab. Settings are saved in `%APPDATA%\AutoLangSwitcher\layouts.txt`.
 
@@ -89,7 +102,7 @@ Requires macOS 11 (Big Sur) or later.
 3. The app is installed in your Applications folder (`~/Applications`) and starts automatically. A keyboard icon with a small arrow badge appears in the menu bar.
 4. Click the icon, choose **Settings…**, and on the **General** tab tick **Start at Login**.
 
-No special permissions are needed.
+No special permissions are needed, unless you turn on **Smart Keyboard Auto Switch** (described in the Windows section), which needs the Accessibility permission.
 
 **Menu bar menu**
 
@@ -102,7 +115,7 @@ No special permissions are needed.
 
 While **Caps Lock** is on, the menu bar keyboard turns orange and shows a capital **A**.
 
-The **Settings** window has the same tabs as on Windows: **Apps** (remove remembered apps), **General** (**Pause** and **Start at Login**), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
+The **Settings** window has the same tabs as on Windows: **Apps** (remove remembered apps), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
 
 **Tip:** Turn off macOS's own **"Automatically switch to a document's input source"** setting so the two don't fight. It's in System Settings → Keyboard → Text Input → Input Sources → Edit.
 
