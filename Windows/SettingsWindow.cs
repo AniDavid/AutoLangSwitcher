@@ -99,9 +99,9 @@ partial class AutoLangSwitcherContext
         smartNote.AutoSize = true;
         smartNote.Margin = new Padding(20, 0, 3, 3);
         smartNote.ForeColor = SystemColors.GrayText;
-        smartNote.Text = "Reads your typing to check each finished word. Nothing is saved or sent.";
+        smartNote.Text = "Reads your typing to check each finished word. Nothing is saved or sent, except the list below.";
         RadioButton suggestRadio = new RadioButton();
-        suggestRadio.Text = "Only suggest (press Pause/Break to fix the word)";
+        suggestRadio.Text = "Only suggest (press the fix key to fix the word)";
         suggestRadio.AutoSize = true;
         suggestRadio.Margin = new Padding(20, 3, 3, 0);
         suggestRadio.Checked = !smartAuto;
@@ -110,18 +110,56 @@ partial class AutoLangSwitcherContext
         autoRadio.AutoSize = true;
         autoRadio.Margin = new Padding(20, 0, 3, 3);
         autoRadio.Checked = smartAuto;
-        suggestRadio.Enabled = autoRadio.Enabled = smartOn;
+        FlowLayoutPanel keyRow = new FlowLayoutPanel();
+        keyRow.AutoSize = true;
+        keyRow.Margin = new Padding(17, 3, 3, 0);
+        Label keyLabel = new Label();
+        keyLabel.Text = "Fix key (also undoes a fix):";
+        keyLabel.AutoSize = true;
+        keyLabel.Margin = new Padding(3, 6, 3, 0);
+        ComboBox keyBox = new ComboBox();
+        keyBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        foreach (FixKey k in FixKeys) keyBox.Items.Add(k.Name);
+        keyBox.SelectedIndex = fixKey;
+        keyRow.Controls.Add(keyLabel);
+        keyRow.Controls.Add(keyBox);
+        Label keepLabel = new Label();
+        keepLabel.AutoSize = true;
+        keepLabel.Margin = new Padding(20, 8, 3, 0);
+        keepLabel.Text = "Never change these words (as they appear when typed; words you undo are added here):";
+        TextBox keepBox = new TextBox();
+        keepBox.Multiline = true;
+        keepBox.ScrollBars = ScrollBars.Vertical;
+        keepBox.Size = new Size(320, 70);
+        keepBox.Margin = new Padding(20, 3, 3, 3);
+        keepBox.Text = KeepWordsText();
+        EventHandler saveKeep = delegate
+        {
+            SetKeepWords(keepBox.Text, true);
+            keepBox.Text = KeepWordsText();
+        };
+        keepBox.Leave += saveKeep;
+        form.FormClosing += delegate { SetKeepWords(keepBox.Text, true); };
+        Action enable = delegate
+        {
+            suggestRadio.Enabled = autoRadio.Enabled = keyBox.Enabled = keepBox.Enabled = smartBox.Checked;
+        };
+        enable();
         EventHandler smartChanged = delegate
         {
-            suggestRadio.Enabled = autoRadio.Enabled = smartBox.Checked;
-            SetSmart(smartBox.Checked, autoRadio.Checked);
+            enable();
+            SetSmart(smartBox.Checked, autoRadio.Checked, keyBox.SelectedIndex);
         };
         smartBox.CheckedChanged += smartChanged;
         autoRadio.CheckedChanged += smartChanged;   // fires for both radios, since one turns the other off
+        keyBox.SelectedIndexChanged += smartChanged;
         general.Controls.Add(smartBox);
         general.Controls.Add(smartNote);
         general.Controls.Add(suggestRadio);
         general.Controls.Add(autoRadio);
+        general.Controls.Add(keyRow);
+        general.Controls.Add(keepLabel);
+        general.Controls.Add(keepBox);
         Label status = new Label();
         status.AutoSize = true;
         status.Margin = new Padding(3, 16, 3, 3);
@@ -230,7 +268,7 @@ HOW IT WORKS
   4. About a second later it checks that the switch worked, and asks again if it didn't. Some programs, such as WhatsApp, need the second request.
   5. While you work, it checks the language a few times a second, so a change you make is remembered right away.
 
-It never reads what you type, and it does not fix text typed in the wrong language.
+Unless you turn on Smart Keyboard Auto Switch (below), it never reads what you type.
 
 THE TABS
   Apps: the programs it remembers. Select some and click Remove to forget them.
@@ -239,14 +277,15 @@ THE TABS
   Log: what it has been doing. Blue lines are switches you made, green lines are switches it made, red lines are problems.
 
 SMART KEYBOARD AUTO SWITCH (optional, off unless you turn it on)
-Turn it on in the General tab. When you finish a word with Space, AutoLangSwitcher checks whether you typed it in the wrong keyboard language, for example 'akuo' when you meant the Hebrew word for hello. If the same keys make a real word in another installed keyboard language:
-  - 'Only suggest' shows a notice. Press Pause/Break within 10 seconds (before typing anything else) to retype the word in the right language.
-  - 'Fix automatically' retypes it right away.
+Turn it on in the General tab. When you finish a word (with Space, punctuation like , . ? !, or Enter), AutoLangSwitcher checks whether you typed it in the wrong keyboard language, for example 'akuo' when you meant the Hebrew word for hello. If the same keys make a real word in another installed keyboard language:
+  - 'Only suggest' shows a notice. Press the fix key (Pause/Break unless you chose another on the General tab) within 10 seconds, before typing anything else, to retype the word in the right language.
+  - 'Fix automatically' retypes it right away. A word ended with Enter is fixed before the Enter goes through, so a chat message is sent already fixed. (In 'Only suggest' mode, words ended with Enter aren't checked: the message would already be sent.)
 Either way, the keyboard switches to that language, and it is remembered for the program.
 Short words that are real in both languages (like 'do', which is the Hebrew word for 'also' on the Hebrew keys) are decided by the words around them: up to 3 earlier words are changed together with a clearly wrong one, unless a word before them shows you meant the language you typed.
-Changed a word you didn't want changed? Press Pause/Break right away (before typing anything else) to put it back. That word is then left alone until AutoLangSwitcher restarts.
+Changed a word you didn't want changed? Press the fix key right away (before typing anything else) to put it back. That word goes on the 'Never change these words' list on the General tab, where you can also add words yourself or remove them.
+Typed 'hELLO' because Caps Lock was on by mistake? It is fixed to 'Hello' (or suggested) and Caps Lock is turned off.
 It checks words with the spelling dictionaries built into Windows, and with letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your installed keyboard languages are used. Words that aren't in any dictionary, like names, are left alone.
-To do this it has to read your typing. The letters of the current word are kept in memory only until you finish it; nothing is saved, logged or sent. Password boxes are skipped where Windows can tell they are password boxes.
+To do this it has to read your typing. The letters of the current word are kept in memory only until you finish it; nothing is logged or sent, and only the never-change list is saved (in never-change.txt next to the settings file). Password boxes are skipped where Windows can tell they are password boxes.
 
 ADMINISTRATOR RIGHTS
 AutoLangSwitcher runs as administrator so it can also switch programs that run as administrator. If it runs without admin rights, those programs keep their language. Use 'Restart as administrator' on the General tab.

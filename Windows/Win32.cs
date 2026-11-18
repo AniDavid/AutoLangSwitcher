@@ -190,7 +190,8 @@ static class Win32
     }
 
     // Presses Backspace `erase` times, then types text as Unicode characters (whatever the layout).
-    public static void Retype(int erase, string text)
+    // Erases `erase` characters, types `text`, then presses `thenKeys` (virtual-key codes).
+    public static void Retype(int erase, string text, params ushort[] thenKeys)
     {
         List<INPUT> inputs = new List<INPUT>();
         for (int i = 0; i < erase; i++)
@@ -202,6 +203,11 @@ static class Win32
         {
             inputs.Add(Key(0, c, KEYEVENTF_UNICODE));
             inputs.Add(Key(0, c, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+        }
+        foreach (ushort vk in thenKeys)
+        {
+            inputs.Add(Key(vk, (char)0, 0));
+            inputs.Add(Key(vk, (char)0, KEYEVENTF_KEYUP));
         }
         SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
     }

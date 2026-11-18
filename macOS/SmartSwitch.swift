@@ -21,14 +21,21 @@ private func smartTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: 
 
 @MainActor
 final class SmartSwitch {
-    // There is no Pause/Break key on a Mac. Z is matched by key position (the Z of a US keyboard).
-    static let fixKeyName = "Control+Option+Z"
+    // Keys the user can pick to apply (or undo) a fix; there is no Pause/Break key on a Mac. A letter is
+    // matched by what the key types in an enabled layout, so it follows AZERTY and other layouts.
+    struct FixKey { let name: String; let letter: String?; let code: Int }
+    static let fixKeys = [FixKey(name: "Control+Option+Z", letter: "z", code: 0),
+                          FixKey(name: "Control+Option+X", letter: "x", code: 0),
+                          FixKey(name: "Control+Option+F", letter: "f", code: 0),
+                          FixKey(name: "F13", letter: nil, code: kVK_F13)]
+    static let wordEnders = ".,?!:;"     // punctuation that ends a word like Space does
     static let marker: Int64 = 0x414C53   // tags the key events we post ourselves
     static let lookBack = 3               // earlier words of the same run that a fix may also change
     enum Verdict { case no, ambiguous, clear }
 
     unowned let app: AppDelegate
     var on = false, auto = false
+    var fixKey = 0   // index into fixKeys
     var tap: CFMachPort?
     var askedForAccess = false
     var layouts: [KeyLayout] = []
@@ -40,8 +47,12 @@ final class SmartSwitch {
     var fixText: String?
     var fixBack = "", fixSource = "", fixBackSource = ""
     var fixErase = 0, fixPid: pid_t = 0, fixIsUndo = false
+    var fixOpenEnd = false   // ended with punctuation: a Space may still follow
     var fixUntil = Date.distantPast
-    var keepWords = Set<String>()   // words whose fix the user undid: left alone until the app quits
+    // Words never to change (lower case): the ones whose fix the user undid, plus any the user added.
+    var keepWords = Set<String>()
+
+    var fixKeyName: String { Self.fixKeys[fixKey].name }
 
     init(app: AppDelegate) { self.app = app }
 
@@ -50,17 +61,30 @@ final class SmartSwitch {
     func load() {
         on = UserDefaults.standard.bool(forKey: "smartSwitch")
         auto = UserDefaults.standard.bool(forKey: "smartSwitchAuto")
+        fixKey = min(max(UserDefaults.standard.integer(forKey: "smartSwitchKey"), 0), Self.fixKeys.count - 1)
+        keepWords = Set(UserDefaults.standard.stringArray(forKey: "smartSwitchNeverChange") ?? [])
         if on { start() }
     }
 
-    func set(on newOn: Bool, auto newAuto: Bool) {
+    func set(on newOn: Bool, auto newAuto: Bool, key: Int) {
         auto = newAuto
+        fixKey = key
         if newOn != on {
             on = newOn
             if on { start() } else { stop() }
         }
         UserDefaults.standard.set(on, forKey: "smartSwitch")
         UserDefaults.standard.set(auto, forKey: "smartSwitchAuto")
+        UserDefaults.standard.set(fixKey, forKey: "smartSwitchKey")
+    }
+
+    // The never-change list as text, one word per line.
+    var keepWordsText: String { keepWords.sorted().joined(separator: "\n") }
+
+    // Replaces the list with the words in `text` (separated by spaces, commas or new lines) and saves it.
+    func setKeepWords(_ text: String) {
+        keepWords = Set(text.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map { $0.lowercased() })
+        UserDefaults.standard.set(keepWords.sorted(), forKey: "smartSwitchNeverChange")
     }
 
     func start() {
@@ -90,6 +114,8 @@ final class SmartSwitch {
         CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, t, 0), .commonModes)
         tap = t
         refreshLayouts()
+        // Load the dictionaries now: a word ended with Return is checked inside the tap, which must be quick.
+        for l in layouts { _ = Spelling.check(l.lang, "a") }
         app.log("smart switch on")
     }
 
@@ -105,7 +131,15 @@ final class SmartSwitch {
 
     // MARK: Typing
 
-    // Returns true to swallow the event: only the fix key when it applies a fix.
+    func isFixKey(_ code: UInt16, _ flags: CGEventFlags) -> Bool {
+        let k = Self.fixKeys[fixKey]
+        guard let letter = k.letter else { return Int(code) == k.code }
+        guard flags.contains(.maskControl), flags.contains(.maskAlternate), !flags.contains(.maskCommand) else { return false }
+        let s = KeyStroke(code: code, shift: false, option: false, caps: false)
+        return layouts.contains { l in Self.char(s, l).map { String($0).lowercased() } == letter }
+    }
+
+    // Returns true to swallow the event: the fix key when it applies a fix, or Return when a fix comes first.
     func handle(_ type: CGEventType, _ event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let t = tap { CGEvent.tapEnable(tap: t, enable: true) }
@@ -119,43 +153,80 @@ final class SmartSwitch {
         }
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
-        if fixText != nil, code == UInt16(kVK_ANSI_Z), flags.contains(.maskControl), flags.contains(.maskAlternate),
-           !flags.contains(.maskCommand) {
+        if fixText != nil, isFixKey(code, flags) {
             Task { @MainActor in self.applyFix() }
             return true
         }
         keyCount += 1
+        if Int(code) == kVK_Space, fixText != nil, fixOpenEnd, !fixIsUndo {
+            // "akuo," then Space: the suggestion stays, and the fix keeps the Space.
+            fixText! += " "
+            fixBack += " "
+            fixErase += 1
+            fixOpenEnd = false
+            endRun()
+            return false
+        }
         if fixText != nil { setFix(nil) }   // typing on: the suggestion no longer applies
         if app.paused || flags.contains(.maskCommand) || flags.contains(.maskControl) || IsSecureEventInputEnabled() {
             endRun()   // paused, a shortcut, or a password field: not part of a word
             return false
         }
+        let s = KeyStroke(code: code, shift: flags.contains(.maskShift), option: flags.contains(.maskAlternate),
+                          caps: flags.contains(.maskAlphaShift))
         switch Int(code) {
         case kVK_Delete:
             if word.isEmpty { history.removeAll() } else { word.removeLast() }   // editing an earlier word: forget the run
             return false
         case kVK_Space:
-            guard !word.isEmpty, let source = InputSources.currentID(),
-                  let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-                endRun()   // two spaces in a row
-                return false
-            }
-            let w = TypedWord(keys: word, source: source)
-            let before = history, count = keyCount
-            Task { @MainActor in self.check(w, before, pid, count) }   // after the tap returns, so typing stays fast
-            history.append(w)
-            if history.count > Self.lookBack { history.removeFirst() }
-            word.removeAll()
+            endWord(" ")
             return false
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            // Fix-automatically mode checks the word before Return goes through (it may send a message):
+            // right here in the tap, so nothing typed after Return can come first.
+            var swallow = false
+            if auto, !word.isEmpty, let source = InputSources.currentID(),
+               let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+                swallow = check(TypedWord(keys: word, source: source), history, pid, keyCount, ender: "",
+                                thenReturn: flags.intersection(.maskShift))
+            }
+            endRun()
+            return swallow   // when fixed, the retyping ends with a new Return
         default:
             break
         }
-        let s = KeyStroke(code: code, shift: flags.contains(.maskShift), option: flags.contains(.maskAlternate),
-                          caps: flags.contains(.maskAlphaShift))
         // A key belongs to the word if it is a letter in any enabled layout: in English the Hebrew letter
-        // tav is the comma key, for example. Return, Tab, arrows, digits... end the run without a check.
-        if layouts.contains(where: { Self.char(s, $0)?.isLetter == true }) { word.append(s) } else { endRun() }
+        // tav is the comma key, for example.
+        if layouts.contains(where: { Self.char(s, $0)?.isLetter == true }) {
+            word.append(s)
+            return false
+        }
+        let current = layouts.first { $0.id == InputSources.currentID() }
+        if let l = current, let c = Self.char(s, l), Self.wordEnders.contains(c) {
+            endWord(String(c))
+        } else {
+            endRun()   // Tab, arrows, digits... end the run without a check
+        }
         return false
+    }
+
+    // The word ended with Space or punctuation (`ender`, already typed): check it once the tap returns.
+    func endWord(_ ender: String) {
+        guard !word.isEmpty, let source = InputSources.currentID(),
+              let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+            endRun()   // two spaces in a row, or punctuation after a space
+            return
+        }
+        let w = TypedWord(keys: word, source: source)
+        let before = history, count = keyCount
+        Task { @MainActor in _ = self.check(w, before, pid, count, ender: ender, thenReturn: nil) }
+        word.removeAll()
+        if ender != " " {
+            history.removeAll()   // punctuation ends the run too
+            return
+        }
+        history.append(w)
+        if history.count > Self.lookBack { history.removeFirst() }
     }
 
     func endRun() {
@@ -163,17 +234,20 @@ final class SmartSwitch {
         history.removeAll()
     }
 
-    // `before`: the earlier words of the same run, oldest first.
-    func check(_ current: TypedWord, _ before: [TypedWord], _ pid: pid_t, _ count: Int) {
+    // `before`: the earlier words of the same run, oldest first. `ender`: what was typed after the word
+    // (" ", punctuation, or "" for Return, which `thenReturn` then types after the fix, with those flags).
+    // Returns true if it fixed the words right away.
+    func check(_ current: TypedWord, _ before: [TypedWord], _ pid: pid_t, _ count: Int,
+               ender: String, thenReturn: CGEventFlags?) -> Bool {
         guard on, count == keyCount, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
-              !IsSecureEventInputEnabled() else { return }
+              !IsSecureEventInputEnabled() else { return false }
         refreshLayouts()
-        guard let layout = layouts.first(where: { $0.id == current.source }) else { return }
-        // The end of the run, current word last. A word typed with another source, or one whose fix the
-        // user undid, cuts it.
+        guard let layout = layouts.first(where: { $0.id == current.source }) else { return false }
+        // The end of the run, current word last. A word typed with another source, or one on the
+        // never-change list, cuts it.
         var run: [[KeyStroke]] = [], typed: [String] = []
         for w in before + [current] {
-            if w.source == layout.id, let t = Self.text(w.keys, layout), !keepWords.contains(t) {
+            if w.source == layout.id, let t = Self.text(w.keys, layout), !keepWords.contains(t.lowercased()) {
                 run.append(w.keys)
                 typed.append(t)
             } else {
@@ -181,7 +255,7 @@ final class SmartSwitch {
                 typed.removeAll()
             }
         }
-        if run.isEmpty { return }
+        if run.isEmpty { return false }
         for other in layouts where Self.twoLetter(other.lang) != Self.twoLetter(layout.lang) {
             let meant = run.map { Self.text($0, other) }
             guard let first = Self.fixStart(typed, layout.lang, meant, other.lang) else { continue }
@@ -191,21 +265,22 @@ final class SmartSwitch {
             let words = n == 1 ? "word" : "\(n) words"
             let name = InputSources.name(other.id)
             app.log("smart switch \(app.currentApp ?? "?"): last \(words) looked like \(name)" +
-                    (auto ? ", fixed" : ", suggested (\(Self.fixKeyName))"))
-            fixBack = typedRun + " "
-            fixErase = typedRun.count + 1   // the words and the space after them
+                    (auto ? ", fixed" : ", suggested (\(fixKeyName))"))
+            fixBack = typedRun + ender
+            fixErase = fixBack.count   // the words and what was typed after them
             fixPid = pid
             fixSource = other.id
             fixBackSource = layout.id
             fixIsUndo = false
+            fixOpenEnd = ender.count == 1 && ender != " "
             if auto {
-                setFix(meantRun + " ")
-                applyFix()
-            } else {
-                setFix(meantRun + " ", hint: "Fix \u{2192} \(name): \u{2303}\u{2325}Z")
+                setFix(meantRun + ender)
+                return applyFix(thenReturn: thenReturn)
             }
-            return
+            setFix(meantRun + ender, hint: "Fix \u{2192} \(name): \(fixKeyName)")
+            return false
         }
+        return false
     }
 
     // A pending fix for 10 seconds, with an optional hint next to the menu bar icon.
@@ -223,35 +298,43 @@ final class SmartSwitch {
         }
     }
 
-    func applyFix() {
-        guard let text = fixText else { return }
+    // `thenReturn`: press Return (with these modifier flags) after the retyped text, or nil.
+    @discardableResult
+    func applyFix(thenReturn: CGEventFlags? = nil) -> Bool {
+        guard let text = fixText else { return false }
         setFix(nil)
-        guard Date() < fixUntil, NSWorkspace.shared.frontmostApplication?.processIdentifier == fixPid else { return }
+        guard Date() < fixUntil, NSWorkspace.shared.frontmostApplication?.processIdentifier == fixPid else { return false }
         InputSources.select(fixSource)   // the app then remembers it like a switch made by hand
-        Self.retype(erase: fixErase, text: text)
+        Self.retype(erase: fixErase, text: text, thenReturn: thenReturn)
         history.removeAll()   // the screen now differs from what was typed
         if fixIsUndo {
-            keepWords.formUnion(text.split(separator: " ").map(String.init))
-            app.log("smart switch \(app.currentApp ?? "?"): fix undone, those words are left alone from now on")
-            return
+            let undone = text.split(separator: " ").map {
+                $0.trimmingCharacters(in: CharacterSet(charactersIn: Self.wordEnders)).lowercased()
+            }
+            setKeepWords(keepWordsText + "\n" + undone.joined(separator: "\n"))
+            app.log("smart switch \(app.currentApp ?? "?"): fix undone, those words are on the never-change list now")
+            return true
         }
+        if thenReturn != nil { return true }   // after Return there is nothing left to undo on this line
         // The fix key again, before typing anything else, puts the words back.
         fixIsUndo = true
+        fixOpenEnd = false
         fixErase = text.count
         swap(&fixSource, &fixBackSource)
         let back = fixBack
         fixBack = text
         setFix(back)
+        return true
     }
 
     // Deletes `erase` characters, then types `text`, as key events tagged with `marker`.
-    static func retype(erase: Int, text: String) {
+    static func retype(erase: Int, text: String, thenReturn: CGEventFlags? = nil) {
         let src = CGEventSource(stateID: .privateState)
         src?.userData = marker
-        func post(_ code: Int, _ s: String?) {
+        func post(_ code: Int, _ s: String?, _ flags: CGEventFlags = []) {
             for down in [true, false] {
                 guard let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(code), keyDown: down) else { continue }
-                e.flags = []   // the user may still be holding Control+Option
+                e.flags = flags   // the user may still be holding Control+Option
                 if let s = s {
                     let u = Array(s.utf16)
                     e.keyboardSetUnicodeString(stringLength: u.count, unicodeString: u)
@@ -261,6 +344,7 @@ final class SmartSwitch {
         }
         for _ in 0..<erase { post(kVK_Delete, nil) }
         for ch in text { post(ch == " " ? kVK_Space : 0, String(ch)) }
+        if let flags = thenReturn { post(kVK_Return, nil, flags) }
     }
 
     // MARK: Keyboard layouts
