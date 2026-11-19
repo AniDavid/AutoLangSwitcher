@@ -651,7 +651,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         keyPopup.target = self
         keyPopup.action = #selector(smartChanged(_:))
         smartKeyPopup = keyPopup
-        let keyRow = NSStackView(views: [NSTextField(labelWithString: "Fix key (also undoes a fix, or changes the last word on request):"), keyPopup])
+        let keyRow = NSStackView(views: [NSTextField(labelWithString: "Fix key:"), keyPopup,
+                                         NSTextField(labelWithString: "(also undoes a fix, or changes the last word)")])
         let keepLabel = NSTextField(wrappingLabelWithString: "Never change these words (as they appear when typed; words you undo are added here):")
         keepLabel.preferredMaxLayoutWidth = 440
         let (keepScroll, keepText) = makeTextView()
@@ -829,6 +830,12 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         guard let data = html.data(using: .utf8),
               let page = NSMutableAttributedString(html: data, baseURL: Bundle.main.resourceURL ?? URL(fileURLWithPath: "/"),
                                                    documentAttributes: nil) else { return nil }
+        page.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: page.length)) { value, range, _ in
+            guard let style = value as? NSParagraphStyle, !style.textLists.isEmpty,
+                  let plain = style.mutableCopy() as? NSMutableParagraphStyle else { return }
+            plain.textLists = []
+            page.addAttribute(.paragraphStyle, value: plain, range: range)
+        }
         // Shrink the pictures to the width of the tab.
         page.enumerateAttribute(.attachment, in: NSRange(location: 0, length: page.length)) { value, _, _ in
             guard let a = value as? NSTextAttachment else { return }
@@ -844,7 +851,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     // using example apps (not yours). Nothing is loaded or saved.
     func takeScreenshots(to dir: String) {
         // Names that aren't installed apps or enabled input sources are shown as they are.
-        map = ["WhatsApp": "Hebrew", "Microsoft Word": "Hebrew", "Mail": "Hebrew", "Safari": "ABC", "com.apple.dt.Xcode": "ABC"]
+        map = ["WhatsApp": "Hebrew", "Microsoft Word": "Hebrew", "Mail": "Hebrew", "Safari": "ABC", "com.apple.Terminal": "ABC"]
         smart.offApps = Set(SmartSwitch.defaultOffApps.map { $0.lowercased() })
         smart.on = true   // so the General tab shows its options enabled
         buildSettingsWindow()
@@ -852,6 +859,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         window.appearance = NSAppearance(named: .aqua)   // light, to match the Help page
         let folder = URL(fileURLWithPath: dir)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        view.layoutSubtreeIfNeeded()
+        if let warm = view.bitmapImageRepForCachingDisplay(in: view.bounds) { view.cacheDisplay(in: view.bounds, to: warm) }   // the first drawing misses the tab bar
         for (i, name) in Self.shotNames.enumerated() {
             tabs.selectTabViewItem(at: i)
             refreshSelectedTab()
