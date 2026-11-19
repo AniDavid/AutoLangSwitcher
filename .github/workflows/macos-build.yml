@@ -22,3 +22,11 @@ jobs:
       - name: Self-test (Smart Keyboard Auto Switch word checks)
         working-directory: macOS
         run: ./AutoLangSwitcher --selftest
+      - name: Screenshots for the Help tab
+        working-directory: macOS
+        run: ./AutoLangSwitcher --screenshots shots && ls -l shots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: help-screenshots
+          path: macOS/shots/*.png
+          if-no-files-found: error

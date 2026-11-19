@@ -809,56 +809,162 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func helpTab() -> NSView {
         let (scroll, text) = makeTextView()
-        text.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        text.string = Self.helpText
+        text.drawsBackground = true
+        text.backgroundColor = .white   // the page has its own colors, also in dark mode
+        text.textContainerInset = NSSize(width: 8, height: 8)
+        let key = SmartSwitch.fixKeys[smart.fixKey].name
+        if let help = Self.helpPage(fixKey: key) { text.textStorage?.setAttributedString(help) }
         return page(scroll, [])
     }
 
-    static let helpText = """
-        WHAT IT DOES
-        AutoLangSwitcher remembers the keyboard input source you last used in each app and switches back to it when you return to that app. For example: Hebrew in WhatsApp, English in your code editor.
+    // The Help page as rich text. {IMG:name} becomes the picture help-name.png from the app's Resources
+    // (made with --screenshots, copied in by build.sh), or nothing if it isn't there.
+    static func helpPage(fixKey: String) -> NSAttributedString? {
+        var html = helpHTML.replacingOccurrences(of: "{FIXKEY}", with: fixKey)
+        for name in shotNames {
+            let img = Bundle.main.url(forResource: "help-\(name)", withExtension: "png") != nil
+                ? "<p><img src='help-\(name).png'></p>" : ""
+            html = html.replacingOccurrences(of: "{IMG:\(name)}", with: img)
+        }
+        guard let data = html.data(using: .utf8),
+              let page = NSMutableAttributedString(html: data, baseURL: Bundle.main.resourceURL ?? URL(fileURLWithPath: "/"),
+                                                   documentAttributes: nil) else { return nil }
+        // Shrink the pictures to the width of the tab.
+        page.enumerateAttribute(.attachment, in: NSRange(location: 0, length: page.length)) { value, _, _ in
+            guard let a = value as? NSTextAttachment else { return }
+            let size = a.image?.size ?? a.bounds.size
+            if size.width > 460 { a.bounds = NSRect(x: 0, y: 0, width: 460, height: size.height * 460 / size.width) }
+        }
+        return page
+    }
 
-        HOW TO USE IT
-        There is nothing to set up. Just use your Mac as usual:
-          - Switch the input source in an app (Ctrl+Space, the Globe key, or the input menu in the menu bar). AutoLangSwitcher remembers it.
-          - When you come back to that app, even after a restart, its input source comes back by itself.
-          - To change an app's input source, just switch it again. The new choice replaces the old one.
+    static let shotNames = ["apps", "general", "off"]   // the first three tabs, in order
 
-        It remembers by app, not by window or tab: all browser tabs share one input source.
+    // AutoLangSwitcher --screenshots <folder>: saves the first three Settings tabs as help-<name>.png,
+    // using example apps (not yours). Nothing is loaded or saved.
+    func takeScreenshots(to dir: String) {
+        // Names that aren't installed apps or enabled input sources are shown as they are.
+        map = ["WhatsApp": "Hebrew", "Microsoft Word": "Hebrew", "Mail": "Hebrew", "Safari": "ABC", "com.apple.dt.Xcode": "ABC"]
+        smart.offApps = Set(SmartSwitch.defaultOffApps.map { $0.lowercased() })
+        smart.on = true   // so the General tab shows its options enabled
+        buildSettingsWindow()
+        guard let window = settingsWindow, let tabs = settingsTabs, let view = window.contentView else { exit(1) }
+        window.appearance = NSAppearance(named: .aqua)   // light, to match the Help page
+        let folder = URL(fileURLWithPath: dir)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for (i, name) in Self.shotNames.enumerated() {
+            tabs.selectTabViewItem(at: i)
+            refreshSelectedTab()
+            view.layoutSubtreeIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("help-\(name).png"))
+        }
+        // The Help tab itself, to check how the page looks (not used in the page).
+        guard Self.helpPage(fixKey: "Control+Option+Z") != nil else { print("the Help page could not be read"); exit(2) }
+        tabs.selectTabViewItem(at: 5)
+        view.layoutSubtreeIfNeeded()
+        if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("check-help.png"))
+        }
+    }
 
-        HOW IT WORKS
-          1. macOS tells AutoLangSwitcher each time a different app comes to the front.
-          2. For that app, it looks up the saved input source and switches to it.
-          3. About half a second later it checks that the switch worked, and asks again if it didn't.
-          4. macOS also tells it whenever you change the input source, so your choice is remembered right away for the app in front.
+    // The Help tab's page. NSAttributedString reads simple HTML and CSS only. Hebrew is written as entities.
+    static let helpHTML = """
+        <html><head><meta charset='utf-8'><style>
+        body { font-family: -apple-system, 'Helvetica Neue', sans-serif; font-size: 13px; color: #222; }
+        h1 { font-size: 20px; color: #1a5fb4; margin: 0 0 4px; }
+        h2 { font-size: 15px; color: #1a5fb4; margin: 18px 0 4px; }
+        p { margin: 5px 0; }
+        li { margin: 2px 0; }
+        code, kbd { font-family: Menlo, monospace; font-size: 12px; color: #333; background-color: #f0f0f0; }
+        .lead { color: #555; }
+        .note { color: #1a4f8b; }
+        .he { font-weight: bold; }
+        .blue { color: #1a5fb4; font-weight: bold; } .green { color: #2e8b3d; font-weight: bold; }
+        .purple { color: #8a3ab9; font-weight: bold; } .gray { color: #777; font-weight: bold; } .red { color: #c01c28; font-weight: bold; }
+        a { color: #1a5fb4; }
+        </style></head><body>
 
-        Unless you turn on Smart Keyboard Auto Switch (below), it never reads what you type.
+        <h1>AutoLangSwitcher</h1>
+        <p class='lead'>Remembers the keyboard input source you last used in each app, and switches back to it when you return.
+        For example: Hebrew in WhatsApp, English in your code editor.</p>
 
-        SMART KEYBOARD AUTO SWITCH (optional, off unless you turn it on)
-        Typed "akuo" when you meant the Hebrew word shalom? Turn this on in General. When you finish a word (with Space, punctuation like , . ? !, or Return), AutoLangSwitcher checks whether the same keys make a real word in another of your enabled input sources. If they do, it either:
-          - Only suggests: the fix appears next to the menu bar icon; press the fix key (Control+Option+Z unless you chose another in General) within 10 seconds to retype the word, or
-          - Fixes it automatically. A word ended with Return is fixed before the Return goes through, so a chat message is sent already fixed. (When only suggesting, words ended with Return aren't checked: the message would already be sent.)
-        Either way it also switches the input source.
-          - It checks words with the spelling dictionaries built into macOS, plus built-in letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your enabled input sources are used, and nothing is downloaded.
-          - Short words that are real in both languages are decided by context: up to 3 earlier words are fixed together with a clearly wrong word ("do akuo" becomes "gam shalom"), while in "I went to akuo" the English "to" stays.
-          - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press the fix key right away to put it back. That word goes on the "Never change these words" list in General, where you can also add or remove words.
-          - Typed a word that is real in both languages, like "tbh" when you meant the Hebrew word for "I"? Nothing is suggested, because the word looks right. Press the fix key right after it anyway to change it to your other keyboard language; press it again to put it back.
-          - Smart switch stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others): there, keys can be commands and auto-complete changes the text. Edit the list on the "Smart switch off" tab to change that.
-          - macOS asks you to allow AutoLangSwitcher under System Settings > Privacy & Security > Accessibility. It is needed to read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.
-          - Privacy: the letters of the current word stay in memory only until you finish it. Nothing is logged or sent, and only the never-change list is saved (in the app's preferences). Password fields are never read (macOS hides them from all apps). While the feature is off, AutoLangSwitcher doesn't read your typing at all.
+        <h2>How to use it</h2>
+        <p>There is nothing to set up. Just use your Mac as usual:</p>
+        <ul>
+        <li>Switch the input source in an app (<kbd>Control</kbd>+<kbd>Space</kbd>, the Globe key, or the input menu in the menu bar). AutoLangSwitcher remembers it.</li>
+        <li>When you come back to that app, even after a restart, its input source comes back by itself.</li>
+        <li>To change an app's input source, just switch it again. The new choice replaces the old one.</li>
+        </ul>
+        <p class='note'>It remembers by <b>app</b>, not by window or tab: all browser tabs share one input source.</p>
 
-        THE TABS
-          Apps: the apps it remembers. Select some and click Remove to forget them.
-          General: pause it, start it when you log in, and turn on Smart Keyboard Auto Switch.
-          Saved list: the remembered list, as stored in the app's preferences.
-          Log: what it has been doing. Blue lines are switches you made, green lines are switches it made, red lines are problems.
+        <h2>The tabs</h2>
+        {IMG:apps}
+        <ul>
+        <li><b>Apps:</b> the apps it remembers and their input sources. Select some (<kbd>Command</kbd>-click for several) and click
+        <b>Remove</b> to forget them, or <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</li>
+        <li><b>General:</b> pause it, start it when you log in, and Smart Keyboard Auto Switch.</li>
+        <li><b>Smart switch off:</b> the apps where Smart Keyboard Auto Switch stays off, by bundle id (<code>com.jetbrains.*</code> matches a family).</li>
+        <li><b>Saved list:</b> the remembered list, as stored in the app's preferences.</li>
+        <li><b>Log:</b> what it has been doing: <span class='blue'>blue</span> switches you made, <span class='green'>green</span> switches it made,
+        <span class='purple'>purple</span> smart switch, <span class='gray'>gray</span> focus changes, <span class='red'>red</span> problems.</li>
+        </ul>
 
-        TIPS
-          - Turn off macOS's own "Automatically switch to a document's input source" so the two don't fight. It's in System Settings > Keyboard > Text Input > Input Sources > Edit.
-          - If an app keeps getting the wrong input source, open the Log tab right after it happens, click Copy all, and paste it into an issue on GitHub:
-            https://github.com/AniDavid/AutoLangSwitcher/issues
-          - Pause it from the menu bar if you want to switch input sources by hand for a while.
-          - While Caps Lock is on, the menu bar keyboard turns orange and shows a capital A.
+        <h2>Smart Keyboard Auto Switch</h2>
+        <p class='lead'>Optional, and off unless you turn it on in General.</p>
+        {IMG:general}
+        <p>Typed <code>akuo</code> when you meant <span class='he'>&#x5E9;&#x5DC;&#x5D5;&#x5DD;</span>? When you finish a word (with <kbd>Space</kbd>,
+        punctuation like <code>, . ? !</code>, or <kbd>Return</kbd>), AutoLangSwitcher checks whether the same keys make a real word in another
+        of your enabled input sources. If they do:</p>
+        <ul>
+        <li><b>Only suggest:</b> the fix appears next to the menu bar icon. Press <kbd>{FIXKEY}</kbd> within 10 seconds to retype the word.</li>
+        <li><b>Fix automatically:</b> it retypes the word right away. A word ended with <kbd>Return</kbd> is fixed before the Return goes through,
+        so a chat message is sent already fixed. (When only suggesting, words ended with Return aren't checked: the message would already be sent.)</li>
+        </ul>
+        <p>Either way it also switches the input source.</p>
+        <p><b>The fix key</b> (<kbd>{FIXKEY}</kbd>, you can choose another in General) does three things:</p>
+        <ul>
+        <li>Fixes a suggested word.</li>
+        <li>Right after a fix you didn't want, puts the word back. That word then goes on the <b>Never change these words</b> list.</li>
+        <li>Right after a word that looks right but isn't, like <code>tbh</code> when you meant <span class='he'>&#x5D0;&#x5E0;&#x5D9;</span>, changes it to
+        your other keyboard language. Press it again to put it back.</li>
+        </ul>
+        <p><b>Good to know</b></p>
+        <ul>
+        <li>Short words that are real in both languages are decided by the words around them: <code>do akuo</code> becomes
+        <span class='he'>&#x5D2;&#x5DD; &#x5E9;&#x5DC;&#x5D5;&#x5DD;</span>, while <code>I went to akuo</code> keeps its English <code>to</code>.</li>
+        <li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into macOS, plus letter
+        statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
+        <li>It stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others), where keys can be commands
+        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or with the buttons on the <b>Apps</b> tab.</li>
+        <li>macOS asks you to allow AutoLangSwitcher under System Settings &gt; Privacy &amp; Security &gt; <b>Accessibility</b>. It is needed to
+        read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.</li>
+        </ul>
+        {IMG:off}
+        <p class='note'><b>Privacy:</b> the letters of the current word stay in memory only until you finish it. Nothing is logged or sent, and only
+        the never-change list is saved. Password fields are never read (macOS hides them from all apps). While the feature is off,
+        AutoLangSwitcher doesn't read your typing at all.</p>
+
+        <h2>How it works</h2>
+        <ol>
+        <li>macOS tells AutoLangSwitcher each time a different app comes to the front.</li>
+        <li>For that app, it looks up the saved input source and switches to it.</li>
+        <li>About half a second later it checks that the switch worked, and asks again if it didn't.</li>
+        <li>macOS also tells it whenever you change the input source, so your choice is remembered right away for the app in front.</li>
+        </ol>
+
+        <h2>Tips</h2>
+        <ul>
+        <li>Turn off macOS's own <b>Automatically switch to a document's input source</b> so the two don't fight. It's in
+        System Settings &gt; Keyboard &gt; Text Input &gt; Input Sources &gt; Edit.</li>
+        <li>An app keeps getting the wrong input source? Open the Log tab right after it happens, click <b>Copy all</b>, and paste it into
+        <a href='https://github.com/AniDavid/AutoLangSwitcher/issues'>an issue on GitHub</a>.</li>
+        <li><b>Pause</b> it from the menu bar to switch input sources by hand for a while.</li>
+        <li>While Caps Lock is on, the menu bar keyboard turns orange and shows a capital <b>A</b>.</li>
+        </ul>
+        </body></html>
         """
 }
 
@@ -871,6 +977,11 @@ struct Main {
     @MainActor static func main() {
         let app = NSApplication.shared
         if CommandLine.arguments.contains("--selftest") { exit(SmartSwitch.selfTest()) }
+        let args = CommandLine.arguments
+        if args.count == 3, args[1] == "--screenshots" {
+            AppDelegate().takeScreenshots(to: args[2])
+            exit(0)
+        }
         let delegate = AppDelegate()
         app.delegate = delegate                // NSApplication holds its delegate weakly
         app.setActivationPolicy(.accessory)    // menu bar only, no Dock icon
