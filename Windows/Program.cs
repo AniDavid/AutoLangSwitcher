@@ -37,6 +37,13 @@ static class Program
             return;
         }
 
+        // Pictures of the Settings tabs for the Help tab: AutoLangSwitcher.exe --screenshots <folder>
+        if (args.Length == 2 && args[0] == "--screenshots")
+        {
+            AutoLangSwitcherContext.TakeScreenshots(args[1]);
+            return;
+        }
+
         // Two copies (or the old KeyboardMemory.exe and this one) would fight over the layout.
         if (IsAlreadyRunning(LegacyMutexName) || (!restarted && IsAlreadyRunning(MutexName)))
         {

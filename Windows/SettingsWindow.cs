@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Net;
 using System.Text;
 using System.Windows.Forms;
 
@@ -280,11 +282,21 @@ partial class AutoLangSwitcherContext
         logTab.Controls[1].Controls.Add(legend);   // the legend sits next to the buttons
 
         // ---- Help
-        TextBox help = MakeTextView();
-        help.WordWrap = true;
-        help.ScrollBars = ScrollBars.Vertical;
-        help.Font = SystemFonts.MessageBoxFont;
-        help.Text = HelpText.Replace("\r\n", "\n").Replace("\n", "\r\n");   // source may be checked out with LF or CRLF
+        WebBrowser help = new WebBrowser();
+        help.Dock = DockStyle.Fill;
+        help.AllowWebBrowserDrop = false;
+        help.IsWebBrowserContextMenuEnabled = false;
+        help.ScriptErrorsSuppressed = true;
+        help.WebBrowserShortcutsEnabled = true;   // Ctrl+C and Ctrl+A still work
+        help.DocumentText = WithHelpImages(HelpHtml.Replace("{FIXKEY}", WebUtility.HtmlEncode(FixKeyName)));
+        // Web links open in the default browser, not inside the tab.
+        help.Navigating += delegate(object sender, WebBrowserNavigatingEventArgs e)
+        {
+            if (e.Url.Scheme != "http" && e.Url.Scheme != "https") return;
+            e.Cancel = true;
+            try { Process.Start(e.Url.ToString()); }
+            catch (Exception ex) { Log("could not open " + e.Url + ": " + ex.Message); }
+        };
         TabPage helpTab = MakeTab("Help", help, null);
 
         tabs.TabPages.AddRange(new TabPage[] { appsTab, generalTab, offTab, fileTab, logTab, helpTab });
@@ -305,55 +317,119 @@ partial class AutoLangSwitcherContext
         form.Activate();
     }
 
-    const string HelpText =
-@"WHAT IT DOES
-AutoLangSwitcher remembers the keyboard language you last used in each program and switches back to it when you return to that program. For example: Hebrew in WhatsApp, English in your code editor.
+    // The Help tab, shown in a WebBrowser control (Internet Explorer engine, so plain CSS only).
+    // {FIXKEY} is replaced with the chosen fix key. Hebrew is written as entities to keep this file ASCII.
+    const string HelpHtml = @"<!DOCTYPE html>
+<html><head><meta charset='utf-8'><meta http-equiv='X-UA-Compatible' content='IE=edge'>
+<style>
+body { font-family: 'Segoe UI', sans-serif; font-size: 10pt; color: #222; margin: 14px 18px; line-height: 1.45; }
+h1 { font-size: 15pt; font-weight: 600; margin: 0 0 4px; color: #1a5fb4; }
+h2 { font-size: 11.5pt; font-weight: 600; margin: 22px 0 6px; padding-bottom: 3px; border-bottom: 1px solid #ddd; color: #1a5fb4; }
+p { margin: 6px 0; }
+ul, ol { margin: 6px 0; padding-left: 22px; }
+li { margin: 3px 0; }
+kbd { font-family: 'Segoe UI', sans-serif; font-size: 9pt; padding: 1px 5px; border: 1px solid #bbb; border-bottom-width: 2px; border-radius: 3px; background: #f6f6f6; white-space: nowrap; }
+code { font-family: Consolas, monospace; font-size: 9.5pt; background: #f2f2f2; padding: 0 3px; white-space: nowrap; }
+.he { font-family: 'Segoe UI', Arial, sans-serif; font-weight: 600; direction: rtl; unicode-bidi: embed; }
+.lead { color: #555; margin-top: 0; }
+.note { background: #eef5fd; border-left: 3px solid #1a5fb4; padding: 7px 10px; margin: 10px 0; }
+.warn { background: #fff6e5; border-left: 3px solid #e0a000; padding: 7px 10px; margin: 10px 0; }
+table { border-collapse: collapse; margin: 6px 0; width: 100%; }
+td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+td.k { font-weight: 600; white-space: nowrap; width: 1%; }
+.ex { color: #555; }
+.blue { color: #1a5fb4; font-weight: 600; } .green { color: #2e8b3d; font-weight: 600; }
+.purple { color: #8a3ab9; font-weight: 600; } .gray { color: #777; font-weight: 600; } .red { color: #c01c28; font-weight: 600; }
+a { color: #1a5fb4; }
+.shot { display: block; max-width: 100%; margin: 10px 0 4px; border: 1px solid #ccc; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+</style></head><body>
 
-HOW TO USE IT
-There is nothing to set up. Just use your computer as usual:
-  - Switch the language in a program (Alt+Shift or Win+Space). AutoLangSwitcher remembers it.
-  - When you come back to that program, even after a restart, its language comes back by itself.
-  - To change a program's language, just switch it again. The new choice replaces the old one.
+<h1>AutoLangSwitcher</h1>
+<p class='lead'>Remembers the keyboard language you last used in each program, and switches back to it when you return.
+For example: Hebrew in WhatsApp, English in your code editor.</p>
 
-It remembers by program, not by window or tab: all browser tabs share one language.
+<h2>How to use it</h2>
+<p>There is nothing to set up. Just use your computer as usual:</p>
+<ul>
+<li>Switch the language in a program (<kbd>Alt</kbd>+<kbd>Shift</kbd> or <kbd>Win</kbd>+<kbd>Space</kbd>). AutoLangSwitcher remembers it.</li>
+<li>When you come back to that program, even after a restart, its language comes back by itself.</li>
+<li>To change a program's language, just switch it again. The new choice replaces the old one.</li>
+</ul>
+<div class='note'>It remembers by <b>program</b>, not by window or tab: all browser tabs share one language.</div>
 
-HOW IT WORKS
-  1. Windows tells AutoLangSwitcher each time a different program comes to the front.
-  2. Before leaving a program, it notes the language that program was using.
-  3. For the program now in front, it looks up the saved language and asks Windows to switch to it.
-  4. About a second later it checks that the switch worked, and asks again if it didn't. Some programs, such as WhatsApp, need the second request.
-  5. While you work, it checks the language a few times a second, so a change you make is remembered right away.
+<h2>The tabs</h2>
+{IMG:apps}
+<table>
+<tr><td class='k'>Apps</td><td>The programs it remembers and their languages. Select some (<kbd>Ctrl</kbd>+click for several) and click
+<b>Remove</b> to forget them, or <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</td></tr>
+<tr><td class='k'>General</td><td>Pause, start with Windows, check for updates, Smart Keyboard Auto Switch, and whether it runs as administrator.</td></tr>
+<tr><td class='k'>Smart switch off</td><td>The programs where Smart Keyboard Auto Switch stays off, one exe name per line.</td></tr>
+<tr><td class='k'>Settings file</td><td>The saved list, as stored on disk.</td></tr>
+<tr><td class='k'>Log</td><td>What it has been doing:
+<span class='blue'>blue</span> switches you made, <span class='green'>green</span> switches it made,
+<span class='purple'>purple</span> smart switch, <span class='gray'>gray</span> focus changes, <span class='red'>red</span> problems.</td></tr>
+</table>
 
-Unless you turn on Smart Keyboard Auto Switch (below), it never reads what you type.
+<h2>Smart Keyboard Auto Switch</h2>
+<p class='lead'>Optional, and off unless you turn it on in the General tab.</p>
+{IMG:general}
+<p>Typed <code>akuo</code> when you meant <span class='he'>&#x5E9;&#x5DC;&#x5D5;&#x5DD;</span>? When you finish a word (with <kbd>Space</kbd>,
+punctuation like <code>, . ? !</code>, or <kbd>Enter</kbd>), AutoLangSwitcher checks whether the same keys make a real word in another
+of your keyboard languages. If they do:</p>
+<ul>
+<li><b>Only suggest</b> shows a notice. Press <kbd>{FIXKEY}</kbd> within 10 seconds, before typing anything else, to retype the word.</li>
+<li><b>Fix automatically</b> retypes it right away. A word ended with <kbd>Enter</kbd> is fixed before the Enter goes through,
+so a chat message is sent already fixed. <kbd>Shift</kbd>+<kbd>Enter</kbd> (a new line in chat apps) is left alone.</li>
+</ul>
+<p>Either way the keyboard switches to that language, and it is remembered for the program.</p>
 
-THE TABS
-  Apps: the programs it remembers. Select some and click Remove to forget them.
-  General: pause it, start it with Windows, and see whether it runs as administrator.
-  Settings file: the saved list, as stored on disk.
-  Log: what it has been doing. Blue lines are switches you made, green lines are switches it made, red lines are problems.
+<p><b>The fix key</b> (<kbd>{FIXKEY}</kbd>, you can choose another on the General tab) does three things:</p>
+<ul>
+<li>Fixes a suggested word.</li>
+<li>Right after a fix you didn't want, puts the word back. That word then goes on the <b>Never change these words</b> list.</li>
+<li>Right after a word that looks right but isn't, like <code>tbh</code> when you meant <span class='he'>&#x5D0;&#x5E0;&#x5D9;</span>, changes it to
+your other keyboard language. Press it again to put it back.</li>
+</ul>
 
-SMART KEYBOARD AUTO SWITCH (optional, off unless you turn it on)
-Turn it on in the General tab. When you finish a word (with Space, punctuation like , . ? !, or Enter), AutoLangSwitcher checks whether you typed it in the wrong keyboard language, for example 'akuo' when you meant the Hebrew word for hello. If the same keys make a real word in another installed keyboard language:
-  - 'Only suggest' shows a notice. Press the fix key (Pause/Break unless you chose another on the General tab) within 10 seconds, before typing anything else, to retype the word in the right language.
-  - 'Fix automatically' retypes it right away. A word ended with Enter is fixed before the Enter goes through, so a chat message is sent already fixed. (In 'Only suggest' mode, words ended with Enter aren't checked: the message would already be sent.)
-Either way, the keyboard switches to that language, and it is remembered for the program.
-Short words that are real in both languages (like 'do', which is the Hebrew word for 'also' on the Hebrew keys) are decided by the words around them: up to 3 earlier words are changed together with a clearly wrong one, unless a word before them shows you meant the language you typed.
-Changed a word you didn't want changed? Press the fix key right away (before typing anything else) to put it back. That word goes on the 'Never change these words' list on the General tab, where you can also add words yourself or remove them.
-Typed a word that is real in both languages, like 'tbh' when you meant the Hebrew word for 'I'? Nothing is suggested, because the word looks right. Press the fix key right after it anyway (before typing anything else) to change it to your other keyboard language; press it again to put it back.
-Smart switch stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Windows Terminal, PowerShell, cmd and others): there, keys can be commands and auto-complete changes the text. Edit the list on the 'Smart switch off' tab to change that.
-Typed 'hELLO' because Caps Lock was on by mistake? It is fixed to 'Hello' (or suggested) and Caps Lock is turned off.
-It checks words with the spelling dictionaries built into Windows, and with letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your installed keyboard languages are used. Words that aren't in any dictionary, like names, are left alone.
-To do this it has to read your typing. The letters of the current word are kept in memory only until you finish it; nothing is logged or sent, and only the never-change list is saved (in never-change.txt next to the settings file). Password boxes are skipped where Windows can tell they are password boxes.
+<p><b>Good to know</b></p>
+<ul>
+<li>Short words that are real in both languages, like <code>do</code> (<span class='he'>&#x5D2;&#x5DD;</span> on the Hebrew keys), are decided
+by the words around them: <span class='ex'><code>do akuo</code> becomes <span class='he'>&#x5D2;&#x5DD; &#x5E9;&#x5DC;&#x5D5;&#x5DD;</span>, while
+<code>I went to akuo</code> keeps its English <code>to</code>.</span></li>
+<li>Typed <code>hELLO</code> because Caps Lock was on by mistake? It is fixed to <code>Hello</code> and Caps Lock is turned off.</li>
+<li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into Windows,
+plus letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
+<li>It stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Windows Terminal, PowerShell, cmd and others),
+where keys can be commands and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or with the buttons on the <b>Apps</b> tab.</li>
+</ul>
+{IMG:off}
+<div class='note'><b>Privacy:</b> to do this it has to read your typing. The letters of the current word stay in memory only until you finish it:
+nothing is logged or sent, and only the never-change list is saved. Password boxes are skipped where Windows can tell they are
+password boxes. While the feature is off, your typing isn't read at all.</div>
 
-ADMINISTRATOR RIGHTS
-AutoLangSwitcher runs as administrator so it can also switch programs that run as administrator. If it runs without admin rights, those programs keep their language. Use 'Restart as administrator' on the General tab.
+<h2>How it works</h2>
+<ol>
+<li>Windows tells AutoLangSwitcher each time a different program comes to the front.</li>
+<li>Before leaving a program, it notes the language that program was using.</li>
+<li>For the program now in front, it looks up the saved language and asks Windows to switch to it.</li>
+<li>About a second later it checks that the switch worked, and asks again if it didn't. Some programs, such as WhatsApp, need the second request.</li>
+<li>While you work, it checks the language a few times a second, so a change you make is remembered right away.</li>
+</ol>
 
-TIPS
-  - If a program keeps getting the wrong language, open the Log tab right after it happens, click Copy all, and paste it into an issue on GitHub:
-    https://github.com/AniDavid/AutoLangSwitcher/issues
-  - Pause it from the tray menu if you want to switch languages by hand for a while.
-  - 'Check for updates...' in the tray menu asks GitHub for the latest version. It also checks once a day by itself, unless you untick that on the General tab; only the version number is fetched, nothing is sent.
-  - While Caps Lock is on, the tray keyboard turns orange and shows a capital A.";
+<h2>Administrator rights</h2>
+<p>AutoLangSwitcher runs as administrator so it can also switch programs that run as administrator. Without admin rights, those programs
+keep their language: use <b>Restart as administrator</b> on the General tab.</p>
+
+<h2>Tips</h2>
+<ul>
+<li>A program keeps getting the wrong language? Open the Log tab right after it happens, click <b>Copy all</b>, and paste it into
+<a href='https://github.com/AniDavid/AutoLangSwitcher/issues'>an issue on GitHub</a>.</li>
+<li><b>Pause</b> it from the tray menu to switch languages by hand for a while.</li>
+<li>While Caps Lock is on, the tray keyboard turns orange and shows a capital <b>A</b>.</li>
+<li><b>Check for updates...</b> in the tray menu asks GitHub for the latest version. It also checks once a day by itself, unless you untick
+that on the General tab. Only the version number is fetched; nothing is sent.</li>
+</ul>
+</body></html>";
 
     // A tab with the main control filling it and an optional button bar along the bottom.
     static TabPage MakeTab(string text, Control main, Control buttons)

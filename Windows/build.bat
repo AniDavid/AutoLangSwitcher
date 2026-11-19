@@ -12,6 +12,8 @@ if not exist "%CSC%" (
 
 "%CSC%" /nologo /target:winexe /optimize+ /out:AutoLangSwitcher.exe ^
     /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+    /resource:Help\help-apps.png,help-apps.png /resource:Help\help-general.png,help-general.png ^
+    /resource:Help\help-off.png,help-off.png ^
     *.cs
 
 if errorlevel 1 (
