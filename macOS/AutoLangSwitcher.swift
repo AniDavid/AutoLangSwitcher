@@ -870,7 +870,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
             try? rep.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("help-\(name).png"))
         }
         // The Help tab itself, to check how the page looks (not used in the page).
-        guard Self.helpPage(fixKey: "Control+Option+Z") != nil else { print("the Help page could not be read"); exit(2) }
+        guard let help = Self.helpPage(fixKey: "Control+Option+Z") else { print("the Help page could not be read"); exit(2) }
+        var pictures = 0
+        help.enumerateAttribute(.attachment, in: NSRange(location: 0, length: help.length)) { v, _, _ in if v != nil { pictures += 1 } }
+        print("Help page: \(help.length) characters, \(pictures) picture(s)")
         tabs.selectTabViewItem(at: 5)
         view.layoutSubtreeIfNeeded()
         if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
