@@ -185,7 +185,7 @@ partial class AutoLangSwitcherContext
         offHwnd = fg;
         string exe = Win32.ResolveExe(fg);
         offHere = exe != null && offApps.Contains(exe);
-        if (offHere) Log("smart switch is off in " + exe + " (General tab)");
+        if (offHere) Log("smart switch is off in " + exe + " (Smart switch off tab)");
         return offHere;
     }
 

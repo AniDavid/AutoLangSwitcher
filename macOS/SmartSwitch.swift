@@ -123,7 +123,7 @@ final class SmartSwitch {
         offPid = front.processIdentifier
         let id = (front.bundleIdentifier ?? front.executableURL?.lastPathComponent ?? "").lowercased()
         offHere = offApps.contains { $0.hasSuffix("*") ? id.hasPrefix(String($0.dropLast())) : id == $0 }
-        if offHere { app.log("smart switch is off in \(id) (General)") }
+        if offHere { app.log("smart switch is off in \(id) (Smart switch off tab)") }
         return offHere
     }
 

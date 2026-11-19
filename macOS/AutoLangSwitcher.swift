@@ -451,6 +451,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let tabs = NSTabView()
         tabs.addTabViewItem(tabItem("Apps", appsTab()))
         tabs.addTabViewItem(tabItem("General", generalTab()))
+        tabs.addTabViewItem(tabItem("Smart switch off", offAppsTab()))
         tabs.addTabViewItem(tabItem("Saved list", savedListTab()))
         tabs.addTabViewItem(tabItem("Log", logTab()))
         tabs.addTabViewItem(tabItem("Help", helpTab()))
@@ -482,6 +483,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         case "General":
             loginBox?.state = loginEnabled ? .on : .off
             showKeepWords()   // a fix undone since adds words
+        case "Smart switch off": offView?.string = smart.offAppsText
         case "Saved list": fillSavedList()
         case "Log": fillLog()
         default: break
@@ -636,30 +638,11 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         keepView = keepText
         showKeepWords()
         keepScroll.borderType = .bezelBorder
-        let offLabel = NSTextField(wrappingLabelWithString: "Off in these apps (bundle ids; code editors and terminals to start with):")
-        let (offScroll, offText) = makeTextView()
-        offText.isEditable = true
-        offText.string = smart.offAppsText
-        offView = offText
-        offScroll.borderType = .bezelBorder
-        for (label, scroll) in [(keepLabel, keepScroll), (offLabel, offScroll)] {
-            label.preferredMaxLayoutWidth = 230
-            scroll.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([scroll.widthAnchor.constraint(equalToConstant: 230),
-                                         scroll.heightAnchor.constraint(equalToConstant: 70)])
-        }
-        let keepColumn = NSStackView(views: [keepLabel, keepScroll])
-        let offColumn = NSStackView(views: [offLabel, offScroll])
-        for c in [keepColumn, offColumn] {
-            c.orientation = .vertical
-            c.alignment = .leading
-            c.spacing = 4
-        }
-        let lists = NSStackView(views: [keepColumn, offColumn])
-        lists.alignment = .top
-        lists.spacing = 12
-        let saveKeep = NSButton(title: "Save lists", target: self, action: #selector(saveKeepWords))
-        let smartGroup = NSStackView(views: [note, suggest, auto, keyRow, lists, saveKeep])
+        keepScroll.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([keepScroll.widthAnchor.constraint(equalToConstant: 320),
+                                     keepScroll.heightAnchor.constraint(equalToConstant: 70)])
+        let saveKeep = NSButton(title: "Save list", target: self, action: #selector(saveKeepWords))
+        let smartGroup = NSStackView(views: [note, suggest, auto, keyRow, keepLabel, keepScroll, saveKeep])
         smartGroup.orientation = .vertical
         smartGroup.alignment = .leading
         smartGroup.spacing = 6
@@ -693,7 +676,6 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         smartRadios.forEach { $0.isEnabled = smart.on }
         smartKeyPopup?.isEnabled = smart.on
         keepView?.isEditable = smart.on
-        offView?.isEditable = smart.on
     }
 
     func showKeepWords() {
@@ -705,10 +687,31 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         // Words added by an undo since the box was filled aren't in it: keep them.
         smart.setKeepWords(keepView?.string ?? "", keeping: smart.keepWords.subtracting(keepShown))
         showKeepWords()
-        if let v = offView {
-            smart.setOffApps(v.string)
-            v.string = smart.offAppsText
-        }
+    }
+
+    // MARK: Smart switch off tab
+
+    func offAppsTab() -> NSView {
+        let (scroll, text) = makeTextView()
+        text.isEditable = true
+        offView = text
+        let label = NSTextField(wrappingLabelWithString: "Smart Keyboard Auto Switch stays off in these apps (bundle ids, one per line; " +
+                                "\"com.jetbrains.*\" matches a family). Code editors and terminals are here to start with: " +
+                                "keys there can be commands, and auto-complete changes the text.")
+        label.preferredMaxLayoutWidth = 480
+        let column = NSStackView(views: [label, scroll])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 8
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([scroll.widthAnchor.constraint(equalTo: column.widthAnchor)])
+        let save = NSButton(title: "Save", target: self, action: #selector(saveOffApps))
+        return page(column, [save])
+    }
+
+    @objc func saveOffApps() {
+        smart.setOffApps(offView?.string ?? "")
+        offView?.string = smart.offAppsText
     }
 
     @objc func loginBoxClicked(_ sender: NSButton) {
@@ -819,7 +822,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
           - Short words that are real in both languages are decided by context: up to 3 earlier words are fixed together with a clearly wrong word ("do akuo" becomes "gam shalom"), while in "I went to akuo" the English "to" stays.
           - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press the fix key right away to put it back. That word goes on the "Never change these words" list in General, where you can also add or remove words.
           - Typed a word that is real in both languages, like "tbh" when you meant the Hebrew word for "I"? Nothing is suggested, because the word looks right. Press the fix key right after it anyway to change it to your other keyboard language; press it again to put it back.
-          - Smart switch stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others): there, keys can be commands and auto-complete changes the text. Edit the "Off in these apps" list in General to change that.
+          - Smart switch stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others): there, keys can be commands and auto-complete changes the text. Edit the list on the "Smart switch off" tab to change that.
           - macOS asks you to allow AutoLangSwitcher under System Settings > Privacy & Security > Accessibility. It is needed to read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.
           - Privacy: the letters of the current word stay in memory only until you finish it. Nothing is logged or sent, and only the never-change list is saved (in the app's preferences). Password fields are never read (macOS hides them from all apps). While the feature is off, AutoLangSwitcher doesn't read your typing at all.
 
