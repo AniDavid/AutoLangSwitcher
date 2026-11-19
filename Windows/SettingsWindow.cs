@@ -25,7 +25,7 @@ partial class AutoLangSwitcherContext
         form.Text = Title + " Settings";
         form.Icon = tray.Icon;
         form.StartPosition = FormStartPosition.CenterScreen;
-        form.Size = new Size(560, 440);
+        form.Size = new Size(560, 520);
         form.MinimumSize = new Size(420, 320);
 
         TabControl tabs = new TabControl();
@@ -144,9 +144,25 @@ partial class AutoLangSwitcherContext
         };
         keepBox.Leave += saveKeep;
         form.FormClosing += delegate { MergeKeepWords(keepBox.Text, keepShown); };
+        Label offLabel = new Label();
+        offLabel.AutoSize = true;
+        offLabel.Margin = new Padding(20, 8, 3, 0);
+        offLabel.Text = "Off in these programs (exe names; code editors and terminals to start with):";
+        TextBox offBox = new TextBox();
+        offBox.Multiline = true;
+        offBox.ScrollBars = ScrollBars.Vertical;
+        offBox.Size = new Size(320, 70);
+        offBox.Margin = new Padding(20, 3, 3, 3);
+        offBox.Text = OffAppsText();
+        offBox.Leave += delegate
+        {
+            SetOffApps(offBox.Text, true);
+            offBox.Text = OffAppsText();
+        };
+        form.FormClosing += delegate { SetOffApps(offBox.Text, true); };
         Action enable = delegate
         {
-            suggestRadio.Enabled = autoRadio.Enabled = keyBox.Enabled = keepBox.Enabled = smartBox.Checked;
+            suggestRadio.Enabled = autoRadio.Enabled = keyBox.Enabled = keepBox.Enabled = offBox.Enabled = smartBox.Checked;
         };
         enable();
         EventHandler smartChanged = delegate
@@ -164,6 +180,8 @@ partial class AutoLangSwitcherContext
         general.Controls.Add(keyRow);
         general.Controls.Add(keepLabel);
         general.Controls.Add(keepBox);
+        general.Controls.Add(offLabel);
+        general.Controls.Add(offBox);
         Label status = new Label();
         status.AutoSize = true;
         status.Margin = new Padding(3, 16, 3, 3);
@@ -288,6 +306,7 @@ Either way, the keyboard switches to that language, and it is remembered for the
 Short words that are real in both languages (like 'do', which is the Hebrew word for 'also' on the Hebrew keys) are decided by the words around them: up to 3 earlier words are changed together with a clearly wrong one, unless a word before them shows you meant the language you typed.
 Changed a word you didn't want changed? Press the fix key right away (before typing anything else) to put it back. That word goes on the 'Never change these words' list on the General tab, where you can also add words yourself or remove them.
 Typed a word that is real in both languages, like 'tbh' when you meant the Hebrew word for 'I'? Nothing is suggested, because the word looks right. Press the fix key right after it anyway (before typing anything else) to change it to your other keyboard language; press it again to put it back.
+Smart switch stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Windows Terminal, PowerShell, cmd and others): there, keys can be commands and auto-complete changes the text. Edit the 'Off in these programs' list on the General tab to change that.
 Typed 'hELLO' because Caps Lock was on by mistake? It is fixed to 'Hello' (or suggested) and Caps Lock is turned off.
 It checks words with the spelling dictionaries built into Windows, and with letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your installed keyboard languages are used. Words that aren't in any dictionary, like names, are left alone.
 To do this it has to read your typing. The letters of the current word are kept in memory only until you finish it; nothing is logged or sent, and only the never-change list is saved (in never-change.txt next to the settings file). Password boxes are skipped where Windows can tell they are password boxes.

@@ -58,6 +58,15 @@ final class SmartSwitch {
     var returnDeadline = Date.distantPast   // a fix made inside the tap after this is dropped
     // Words never to change (lower case): the ones whose fix the user undid, plus any the user added.
     var keepWords = Set<String>()
+    // Apps where smart switch stays off (bundle ids, lower case; "prefix*" matches a family). Code editors
+    // and terminals by default: there, keys may be commands (Vim), auto-complete changes the text, and
+    // Return runs things.
+    static let defaultOffApps = ["com.microsoft.vscode", "com.todesktop.*", "com.exafunction.windsurf", "com.apple.dt.xcode",
+                                 "com.jetbrains.*", "com.google.android.studio", "com.sublimetext.*", "org.vim.macvim",
+                                 "com.apple.terminal", "com.googlecode.iterm2", "dev.warp.*", "net.kovidgoyal.kitty",
+                                 "org.alacritty", "com.github.wez.wezterm", "com.mitchellh.ghostty"]
+    var offApps = Set<String>()
+    var offPid: pid_t = -1, offHere = false   // offHere: worked out for the app with offPid
     var warmLangs = Set<String>()   // languages whose spell checker is loaded
     static let returnBudget = 0.15   // seconds a fix may take inside the tap (macOS gives up on slow taps)
 
@@ -72,6 +81,7 @@ final class SmartSwitch {
         auto = UserDefaults.standard.bool(forKey: "smartSwitchAuto")
         fixKey = min(max(UserDefaults.standard.integer(forKey: "smartSwitchKey"), 0), Self.fixKeys.count - 1)
         keepWords = Set(UserDefaults.standard.stringArray(forKey: "smartSwitchNeverChange") ?? [])
+        offApps = Set((UserDefaults.standard.stringArray(forKey: "smartSwitchOffApps") ?? Self.defaultOffApps).map { $0.lowercased() })
         if on { start() }
     }
 
@@ -96,6 +106,25 @@ final class SmartSwitch {
         keepWords = Set(text.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map { $0.lowercased() })
             .union(keeping)
         UserDefaults.standard.set(keepWords.sorted(), forKey: "smartSwitchNeverChange")
+    }
+
+    var offAppsText: String { offApps.sorted().joined(separator: "\n") }
+
+    func setOffApps(_ text: String) {
+        offApps = Set(text.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map { $0.lowercased() })
+        UserDefaults.standard.set(offApps.sorted(), forKey: "smartSwitchOffApps")
+        offPid = -1   // work it out again
+    }
+
+    // Is smart switch off in the frontmost app? Worked out once per app.
+    func isOffHere() -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication else { return false }
+        if front.processIdentifier == offPid { return offHere }
+        offPid = front.processIdentifier
+        let id = (front.bundleIdentifier ?? front.executableURL?.lastPathComponent ?? "").lowercased()
+        offHere = offApps.contains { $0.hasSuffix("*") ? id.hasPrefix(String($0.dropLast())) : id == $0 }
+        if offHere { app.log("smart switch is off in \(id) (General)") }
+        return offHere
     }
 
     // Undone words are saved without a trailing comma or period, but those keys may still be in the
@@ -187,6 +216,7 @@ final class SmartSwitch {
             setFix(nil)
             return false
         }
+        if isOffHere() { return false }   // its keys are left alone and don't touch other apps' words
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         if isFixKey(code, flags) {

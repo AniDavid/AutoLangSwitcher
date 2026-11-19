@@ -41,6 +41,20 @@ partial class AutoLangSwitcherContext
     };
 
     static readonly string KeepFile = Path.Combine(DataDir, "never-change.txt");
+    // Programs where smart switch stays off (exe names). Code editors and terminals by default: there,
+    // keys may be commands (Vim), auto-complete changes the text, and Enter runs things.
+    static readonly string OffFile = Path.Combine(DataDir, "smart-switch-off.txt");
+    static readonly string[] DefaultOffApps =
+    {
+        "code.exe", "cursor.exe", "windsurf.exe", "devenv.exe", "idea64.exe", "pycharm64.exe", "rider64.exe",
+        "webstorm64.exe", "clion64.exe", "goland64.exe", "phpstorm64.exe", "rubymine64.exe", "datagrip64.exe",
+        "studio64.exe", "notepad++.exe", "sublime_text.exe", "vim.exe", "gvim.exe", "windowsterminal.exe",
+        "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "openconsole.exe", "putty.exe", "mintty.exe",
+        "wezterm-gui.exe", "alacritty.exe",
+    };
+    readonly HashSet<string> offApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    IntPtr offHwnd = IntPtr.Zero;   // the window offHere was worked out for
+    bool offHere;
 
     bool smartOn, smartAuto;
     int fixKey;   // index into FixKeys
@@ -93,6 +107,12 @@ partial class AutoLangSwitcherContext
             if (File.Exists(KeepFile)) SetKeepWords(File.ReadAllText(KeepFile, Encoding.UTF8), false);
         }
         catch (Exception ex) { Log("could not read the never-change list: " + ex.Message); }
+        try
+        {
+            if (File.Exists(OffFile)) SetOffApps(File.ReadAllText(OffFile, Encoding.UTF8), false);
+            else foreach (string exe in DefaultOffApps) offApps.Add(exe);
+        }
+        catch (Exception ex) { Log("could not read the list of programs where smart switch is off: " + ex.Message); }
         tray.BalloonTipClicked += delegate { ApplyFix(); };
         if (smartOn) StartSmart();
     }
@@ -133,6 +153,40 @@ partial class AutoLangSwitcherContext
         foreach (string w in text.Split(new char[] { ' ', ',', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
             keepWords.Add(w);
         if (save) SaveKeepWords();
+    }
+
+    // The programs where smart switch is off, one exe name per line.
+    string OffAppsText()
+    {
+        List<string> apps = new List<string>(offApps);
+        apps.Sort(StringComparer.OrdinalIgnoreCase);
+        return string.Join("\r\n", apps.ToArray());
+    }
+
+    void SetOffApps(string text, bool save)
+    {
+        offApps.Clear();
+        foreach (string a in text.Split(new char[] { ' ', ',', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            offApps.Add(a.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? a : a + ".exe");
+        offHwnd = IntPtr.Zero;   // work it out again
+        if (!save) return;
+        try
+        {
+            Directory.CreateDirectory(DataDir);
+            File.WriteAllText(OffFile, OffAppsText() + "\r\n", new UTF8Encoding(false));
+        }
+        catch (Exception ex) { Log("could not save the list of programs where smart switch is off: " + ex.Message); }
+    }
+
+    // Is smart switch off in the program that owns `fg`? Worked out once per window.
+    bool IsOffIn(IntPtr fg)
+    {
+        if (fg == offHwnd) return offHere;
+        offHwnd = fg;
+        string exe = Win32.ResolveExe(fg);
+        offHere = exe != null && offApps.Contains(exe);
+        if (offHere) Log("smart switch is off in " + exe + " (General tab)");
+        return offHere;
     }
 
     // The settings box's text, plus words added to the list (by an undo) since the box showed `shown`.
@@ -258,6 +312,8 @@ partial class AutoLangSwitcherContext
     // Returns true to swallow the key: the fix key when it applies a fix, or Enter when a fix comes first.
     bool OnKey(uint vk, uint sc)
     {
+        // A program on the off list: its keys are left alone and don't touch the word of other windows.
+        if (IsOffIn(Win32.GetForegroundWindow())) return false;
         if (IsFixKey(vk))
         {
             if (fixText != null)
