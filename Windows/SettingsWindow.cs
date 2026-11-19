@@ -133,13 +133,17 @@ partial class AutoLangSwitcherContext
         keepBox.Size = new Size(320, 70);
         keepBox.Margin = new Padding(20, 3, 3, 3);
         keepBox.Text = KeepWordsText();
+        // The words the box was filled with: an undo while the window is open adds words that the box
+        // doesn't show, and saving the box must not drop them.
+        HashSet<string> keepShown = new HashSet<string>(keepWords, StringComparer.OrdinalIgnoreCase);
         EventHandler saveKeep = delegate
         {
-            SetKeepWords(keepBox.Text, true);
+            MergeKeepWords(keepBox.Text, keepShown);
+            keepShown = new HashSet<string>(keepWords, StringComparer.OrdinalIgnoreCase);
             keepBox.Text = KeepWordsText();
         };
         keepBox.Leave += saveKeep;
-        form.FormClosing += delegate { SetKeepWords(keepBox.Text, true); };
+        form.FormClosing += delegate { MergeKeepWords(keepBox.Text, keepShown); };
         Action enable = delegate
         {
             suggestRadio.Enabled = autoRadio.Enabled = keyBox.Enabled = keepBox.Enabled = smartBox.Checked;

@@ -165,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var smartRadios: [NSButton] = []   // only suggest, fix automatically
     var smartKeyPopup: NSPopUpButton?
     var keepView: NSTextView?
+    var keepShown = Set<String>()   // the words keepView was filled with
 
     lazy var smart = SmartSwitch(app: self)
 
@@ -479,7 +480,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         case "Apps": fillApps()
         case "General":
             loginBox?.state = loginEnabled ? .on : .off
-            keepView?.string = smart.keepWordsText   // a fix undone since adds words
+            showKeepWords()   // a fix undone since adds words
         case "Saved list": fillSavedList()
         case "Log": fillLog()
         default: break
@@ -631,8 +632,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         keepLabel.preferredMaxLayoutWidth = 440
         let (keepScroll, keepText) = makeTextView()
         keepText.isEditable = true
-        keepText.string = smart.keepWordsText
         keepView = keepText
+        showKeepWords()
         keepScroll.borderType = .bezelBorder
         keepScroll.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([keepScroll.widthAnchor.constraint(equalToConstant: 320),
@@ -674,9 +675,15 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         keepView?.isEditable = smart.on
     }
 
-    @objc func saveKeepWords() {
-        smart.setKeepWords(keepView?.string ?? "")
+    func showKeepWords() {
         keepView?.string = smart.keepWordsText
+        keepShown = smart.keepWords
+    }
+
+    @objc func saveKeepWords() {
+        // Words added by an undo since the box was filled aren't in it: keep them.
+        smart.setKeepWords(keepView?.string ?? "", keeping: smart.keepWords.subtracting(keepShown))
+        showKeepWords()
     }
 
     @objc func loginBoxClicked(_ sender: NSButton) {
