@@ -627,7 +627,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         keyPopup.target = self
         keyPopup.action = #selector(smartChanged(_:))
         smartKeyPopup = keyPopup
-        let keyRow = NSStackView(views: [NSTextField(labelWithString: "Fix key (also undoes a fix):"), keyPopup])
+        let keyRow = NSStackView(views: [NSTextField(labelWithString: "Fix key (also undoes a fix, or changes the last word on request):"), keyPopup])
         let keepLabel = NSTextField(wrappingLabelWithString: "Never change these words (as they appear when typed; words you undo are added here):")
         keepLabel.preferredMaxLayoutWidth = 440
         let (keepScroll, keepText) = makeTextView()
@@ -793,6 +793,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
           - It checks words with the spelling dictionaries built into macOS, plus built-in letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your enabled input sources are used, and nothing is downloaded.
           - Short words that are real in both languages are decided by context: up to 3 earlier words are fixed together with a clearly wrong word ("do akuo" becomes "gam shalom"), while in "I went to akuo" the English "to" stays.
           - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press the fix key right away to put it back. That word goes on the "Never change these words" list in General, where you can also add or remove words.
+          - Typed a word that is real in both languages, like "tbh" when you meant the Hebrew word for "I"? Nothing is suggested, because the word looks right. Press the fix key right after it anyway to change it to your other keyboard language; press it again to put it back.
           - macOS asks you to allow AutoLangSwitcher under System Settings > Privacy & Security > Accessibility. It is needed to read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.
           - Privacy: the letters of the current word stay in memory only until you finish it. Nothing is logged or sent, and only the never-change list is saved (in the app's preferences). Password fields are never read (macOS hides them from all apps). While the feature is off, AutoLangSwitcher doesn't read your typing at all.
 

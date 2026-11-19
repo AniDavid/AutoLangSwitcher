@@ -63,6 +63,11 @@ partial class AutoLangSwitcherContext
     string fixText, fixBack;
     IntPtr fixHwnd, fixLayout, fixBackLayout;
     int fixErase, fixUntil;
+    // The last word ended (and what ended it), for the fix key when no fix is waiting ("force fix").
+    TypedWord lastWord;
+    string lastEnder;
+    IntPtr lastHwnd;
+    bool hasLastWord, fixForced;
     bool fixIsUndo, fixCapsOff, fixOpenEnd;   // fixOpenEnd: ended with punctuation, a Space may follow
     // Words never to change: the ones whose fix the user undid, plus any the user added.
     readonly HashSet<string> keepWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -253,10 +258,22 @@ partial class AutoLangSwitcherContext
     // Returns true to swallow the key: the fix key when it applies a fix, or Enter when a fix comes first.
     bool OnKey(uint vk, uint sc)
     {
-        if (fixText != null && IsFixKey(vk))
+        if (IsFixKey(vk))
         {
-            ui.Post(delegate { ApplyFix(); }, null);
-            return true;
+            if (fixText != null)
+            {
+                ui.Post(delegate { ApplyFix(); }, null);
+                return true;
+            }
+            // No fix waiting: convert the word just typed anyway ("tbh" typed for the Hebrew word for "I": real in both languages).
+            IntPtr fgNow = Win32.GetForegroundWindow();
+            if (smartOn && !paused && ((word.Count > 0 && fgNow == wordHwnd) || (word.Count == 0 && hasLastWord && fgNow == lastHwnd)))
+            {
+                TypedWord w = word.Count > 0 ? TakeWord(fgNow) : lastWord;
+                string ender = word.Count > 0 ? "" : lastEnder;
+                ui.Post(delegate { ForceFix(w, ender, fgNow); }, null);
+                return true;
+            }
         }
         if (IsModifier(vk)) return false;
         keyCount++;
@@ -296,7 +313,11 @@ partial class AutoLangSwitcherContext
         if (vk == VK_BACK)
         {
             if (word.Count > 0) word.RemoveAt(word.Count - 1);
-            else history.Clear();   // editing an earlier word: the run no longer matches the screen
+            else
+            {
+                history.Clear();   // editing an earlier word: the run no longer matches the screen
+                hasLastWord = false;
+            }
             return false;
         }
         if (vk == VK_SPACE)
@@ -349,6 +370,10 @@ partial class AutoLangSwitcherContext
             return;
         }
         TypedWord w = TakeWord(fg);
+        lastWord = w;
+        lastEnder = ender;
+        lastHwnd = fg;
+        hasLastWord = true;
         TypedWord[] before = history.ToArray();
         int count = keyCount;
         ui.Post(delegate { CheckWord(w, before, fg, count, ender, 0); }, null);
@@ -376,6 +401,7 @@ partial class AutoLangSwitcherContext
     {
         word.Clear();
         history.Clear();
+        hasLastWord = false;
     }
 
     static bool IsModifier(uint vk)
@@ -397,7 +423,7 @@ partial class AutoLangSwitcherContext
         {
             Log("smart switch " + curExe + ": word typed with Caps Lock on" + (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
             return OfferFix(SwapCase(cur) + ender, cur + ender, layout, layout, hwnd, ender, thenKey, true,
-                "Caps Lock was on? Press " + FixKeyName + " to fix the word and turn Caps Lock off.");
+                "Caps Lock was on? Press " + FixKeyName + " to fix the word and turn Caps Lock off.", false);
         }
         // The end of the run, current word last. A word typed with another layout, or one on the
         // never-change list, cuts it.
@@ -431,7 +457,7 @@ partial class AutoLangSwitcherContext
                 Win32.LayoutName(other) + (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
             return OfferFix(meantRun + ender, typedRun + ender, other, layout, hwnd, ender, thenKey, false,
                 "Typed in the wrong language? Press " + FixKeyName + " to change the last " + what + " to " +
-                Win32.LayoutName(other) + ".");
+                Win32.LayoutName(other) + ".", false);
         }
         // "akuo,": on a Hebrew/English PC the comma key is also the Hebrew letter tav, so it went into
         // the word. Try again with it as punctuation.
@@ -450,8 +476,9 @@ partial class AutoLangSwitcherContext
 
     // Makes the fix (fix-automatically mode) or offers it. Returns true if it was made.
     bool OfferFix(string text, string back, IntPtr layout, IntPtr backLayout, IntPtr hwnd, string ender,
-                  ushort thenKey, bool capsOff, string suggestion)
+                  ushort thenKey, bool capsOff, string suggestion, bool force)
     {
+        fixForced = force;
         fixText = text;
         fixBack = back;
         fixErase = back.Length;   // the words and what was typed after them
@@ -462,7 +489,7 @@ partial class AutoLangSwitcherContext
         fixCapsOff = capsOff;
         fixOpenEnd = ender.Length == 1 && ender != " " && thenKey == 0;
         fixUntil = Environment.TickCount + 10000;
-        if (smartAuto) return ApplyFix(thenKey);
+        if (smartAuto || force) return ApplyFix(thenKey);
         tray.ShowBalloonTip(10000, Title, suggestion, ToolTipIcon.Info);
         return false;
     }
@@ -487,6 +514,13 @@ partial class AutoLangSwitcherContext
         if (thenKey != 0) after.Add(thenKey);
         Win32.Retype(fixErase, text, after.ToArray());
         history.Clear();   // the screen now differs from what was typed
+        word.Clear();
+        hasLastWord = false;
+        if (fixIsUndo && fixForced)
+        {
+            Log("smart switch " + curExe + ": fix undone");
+            return true;
+        }
         if (fixIsUndo)
         {
             foreach (string w in text.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
@@ -506,6 +540,39 @@ partial class AutoLangSwitcherContext
         fixBackLayout = fixedLayout;
         fixUntil = Environment.TickCount + 10000;
         return true;
+    }
+
+    // The fix key with no fix waiting: change the word to the other keyboard language, even though it
+    // looked right (a real word in both). With more than two languages, one where it is a real word wins.
+    void ForceFix(TypedWord w, string ender, IntPtr hwnd)
+    {
+        if (!smartOn || Win32.GetForegroundWindow() != hwnd || Win32.IsPasswordBox(hwnd)) return;
+        Stroke[] keys = w.Keys;
+        char last = CharOf(keys[keys.Length - 1], w.Layout);
+        if (keys.Length > 1 && last != '\0' && WordEnders.IndexOf(last) >= 0)
+        {
+            // "akuo," with the comma key: keep the comma as it is
+            Array.Resize(ref keys, keys.Length - 1);
+            ender = last + ender;
+        }
+        string typed = TextOf(keys, w.Layout);
+        if (typed == null) return;
+        IntPtr best = IntPtr.Zero;
+        string bestText = null;
+        foreach (IntPtr other in Win32.Layouts())
+        {
+            if (LangOf(other) == LangOf(w.Layout)) continue;
+            string t = TextOf(keys, other);
+            if (t == null) continue;
+            if (bestText == null || (IsWord(LangOf(other), t) == true && IsWord(LangOf(best), bestText) != true))
+            {
+                best = other;
+                bestText = t;
+            }
+        }
+        if (bestText == null) return;
+        Log("smart switch " + curExe + ": " + FixKeyName + " pressed, last word changed to " + Win32.LayoutName(best));
+        OfferFix(bestText + ender, typed + ender, best, w.Layout, hwnd, ender, 0, false, null, true);
     }
 
     // "hELLO": typed with Caps Lock on, holding Shift for the first letter, as when Caps Lock was hit by mistake.
@@ -580,7 +647,7 @@ partial class AutoLangSwitcherContext
         ("i ok js ts ai ui ux vs tv pc os ip id pm am db hr pr qa eu uk " +
          "api sdk cli gui url uri http https html css json xml yaml sql cmd exe dll msi pdf docx xlsx pptx csv txt " +
          "zip usb ssd hdd cpu gpu ram rom ios wifi vpn dns tcp udp ssh ftp smtp git npm nuget sudo bash apt dev prod " +
-         "ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk tbh etc aka").Split(' '));
+         "ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk etc aka").Split(' '));
 
     // Real 1-2 letter words, for languages whose dictionary accepts almost any one or two letters
     // (Windows' Hebrew dictionary accepts single letters). Longer words go to the dictionary.
@@ -691,6 +758,7 @@ partial class AutoLangSwitcherContext
         RunCheck(check, en, he, "akuo do", 0, "'akuo do': ambiguous 'do' after shalom is changed with it");
         RunCheck(check, en, he, "to do so", -1, "'to do so': all ambiguous, left alone");
         RunCheck(check, en, he, "hello world", -1, "'hello world' is left alone");
+        RunCheck(check, en, he, "akuo tbh", 0, "'akuo tbh': 'tbh' (the Hebrew word for I) is changed with shalom");
         // "hELLO": Caps Lock on, Shift held for the first letter.
         Stroke[] slip = KeysOf("hello", en);
         for (int i = 0; i < slip.Length; i++) slip[i].Caps = true;

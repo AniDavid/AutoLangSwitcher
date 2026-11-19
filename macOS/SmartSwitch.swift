@@ -51,6 +51,9 @@ final class SmartSwitch {
     var fixBack = "", fixSource = "", fixBackSource = ""
     var fixErase = 0, fixPid: pid_t = 0, fixIsUndo = false
     var fixOpenEnd = false   // ended with punctuation: a Space may still follow
+    var fixForced = false    // made by the fix key with no fix waiting
+    // The last word ended (and what ended it), for the fix key when no fix is waiting ("force fix").
+    var lastWord: (word: TypedWord, ender: String, pid: pid_t)?
     var fixUntil = Date.distantPast
     var returnDeadline = Date.distantPast   // a fix made inside the tap after this is dropped
     // Words never to change (lower case): the ones whose fix the user undid, plus any the user added.
@@ -186,9 +189,19 @@ final class SmartSwitch {
         }
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
-        if fixText != nil, isFixKey(code, flags) {
-            Task { @MainActor in self.applyFix() }
-            return true
+        if isFixKey(code, flags) {
+            if fixText != nil {
+                Task { @MainActor in self.applyFix() }
+                return true
+            }
+            // No fix waiting: convert the word just typed anyway ("tbh" typed for the Hebrew word for "I",
+            // real in both languages).
+            var target: (word: TypedWord, ender: String, pid: pid_t)? = word.isEmpty ? lastWord : nil
+            if let c = currentWord() { target = (c.0, "", c.1) }
+            if on, !app.paused, let t = target, NSWorkspace.shared.frontmostApplication?.processIdentifier == t.pid {
+                Task { @MainActor in self.forceFix(t.word, ender: t.ender, pid: t.pid) }
+                return true
+            }
         }
         keyCount += 1
         if Int(code) == kVK_Space, fixText != nil, fixOpenEnd, !fixIsUndo, !app.paused,
@@ -211,7 +224,7 @@ final class SmartSwitch {
                           caps: flags.contains(.maskAlphaShift))
         switch Int(code) {
         case kVK_Delete:
-            if word.isEmpty { history.removeAll() } else { word.removeLast() }   // editing an earlier word: forget the run
+            if word.isEmpty { history.removeAll(); lastWord = nil } else { word.removeLast() }   // editing an earlier word: forget the run
             return false
         case kVK_Space:
             endWord(" ")
@@ -251,6 +264,7 @@ final class SmartSwitch {
             return
         }
         let before = history, count = keyCount
+        lastWord = (w, ender, pid)
         Task { @MainActor in _ = self.check(w, before, pid, count, ender: ender, thenReturn: nil) }
         word.removeAll()
         // Punctuation ends the run too, also when its key went into the word as a letter ("akuo,").
@@ -281,6 +295,7 @@ final class SmartSwitch {
     }
 
     func endRun() {
+        lastWord = nil
         word.removeAll()
         history.removeAll()
     }
@@ -323,6 +338,7 @@ final class SmartSwitch {
             fixSource = other.id
             fixBackSource = layout.id
             fixIsUndo = false
+            fixForced = false
             fixOpenEnd = ender.count == 1 && ender != " " && thenReturn == nil
             if auto {
                 setFix(meantRun + ender)
@@ -339,6 +355,37 @@ final class SmartSwitch {
                          ender: String(c) + ender, thenReturn: thenReturn)
         }
         return false
+    }
+
+    // The fix key with no fix waiting: change the word to the other keyboard language, even though it
+    // looked right (a real word in both). With more than two languages, one where it is a real word wins.
+    func forceFix(_ w: TypedWord, ender e: String, pid: pid_t) {
+        guard on, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid, !IsSecureEventInputEnabled(),
+              let layout = layouts.first(where: { $0.id == w.source }) else { return }
+        var keys = w.keys, ender = e
+        if keys.count > 1, let c = Self.char(keys[keys.count - 1], layout), Self.wordEnders.contains(c) {
+            keys.removeLast()   // "akuo," with the comma key: keep the comma as it is
+            ender = String(c) + ender
+        }
+        guard let typed = Self.text(keys, layout) else { return }
+        var best: (layout: KeyLayout, text: String)?
+        for other in layouts where Self.twoLetter(other.lang) != Self.twoLetter(layout.lang) {
+            guard let t = Self.text(keys, other) else { continue }
+            if let b = best, !(Self.isWord(other.lang, t) == true && Self.isWord(b.layout.lang, b.text) != true) { continue }
+            best = (other, t)
+        }
+        guard let b = best else { return }
+        app.log("smart switch \(app.currentApp ?? "?"): \(fixKeyName) pressed, last word changed to \(InputSources.name(b.layout.id))")
+        fixBack = typed + ender
+        fixErase = fixBack.count
+        fixPid = pid
+        fixSource = b.layout.id
+        fixBackSource = layout.id
+        fixIsUndo = false
+        fixForced = true
+        fixOpenEnd = false
+        setFix(b.text + ender)
+        applyFix()
     }
 
     // A pending fix for 10 seconds, with an optional hint next to the menu bar icon.
@@ -370,6 +417,12 @@ final class SmartSwitch {
         InputSources.select(fixSource)   // the app then remembers it like a switch made by hand
         Self.retype(erase: fixErase, text: text, thenReturn: thenReturn)
         history.removeAll()   // the screen now differs from what was typed
+        word.removeAll()
+        lastWord = nil
+        if fixIsUndo, fixForced {
+            app.log("smart switch \(app.currentApp ?? "?"): fix undone")
+            return true
+        }
         if fixIsUndo {
             let undone = text.split(separator: " ").map {
                 $0.trimmingCharacters(in: CharacterSet(charactersIn: Self.wordEnders)).lowercased()
@@ -521,7 +574,7 @@ final class SmartSwitch {
         i ok js ts ai ui ux vs tv pc os ip id pm am db hr pr qa eu uk
         api sdk cli gui url uri http https html css json xml yaml sql cmd exe dll msi pdf docx xlsx pptx csv txt
         zip usb ssd hdd cpu gpu ram rom ios wifi vpn dns tcp udp ssh ftp smtp git npm nuget sudo bash apt dev prod
-        ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk tbh etc aka
+        ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk etc aka
         """)
 
     static func words(_ list: String) -> Set<String> {
@@ -616,6 +669,7 @@ final class SmartSwitch {
         runCheck("akuo do", 0, "'akuo do': ambiguous 'do' after shalom is changed with it")
         runCheck("to do so", nil, "'to do so': all ambiguous, left alone")
         runCheck("hello world", nil, "'hello world' is left alone")
+        runCheck("akuo tbh", 0, "'akuo tbh': 'tbh' (the Hebrew word for I) is changed with shalom")
         for (lang, meantOn, typedWith) in [("he", he, en), ("en", en, he)] {
             var found = 0, total = 0
             for w in LetterStats.tables[lang]!.samples {
