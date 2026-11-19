@@ -39,19 +39,25 @@ partial class AutoLangSwitcherContext
         list.MultiSelect = true;
         list.HideSelection = false;
         list.Columns.Add("Program", 260);
-        list.Columns.Add("Language", 220);
+        list.Columns.Add("Language", 160);
+        list.Columns.Add("Smart switch", 90);
         Button remove = MakeButton("Remove");
         Button removeAll = MakeButton("Remove all");
-        remove.Enabled = false;
-        list.SelectedIndexChanged += delegate { remove.Enabled = list.SelectedItems.Count > 0; };
+        Button offButton = MakeButton("Smart switch off");
+        Button onButton = MakeButton("Smart switch on");
+        remove.Enabled = offButton.Enabled = onButton.Enabled = false;
+        list.SelectedIndexChanged += delegate
+        {
+            remove.Enabled = offButton.Enabled = onButton.Enabled = list.SelectedItems.Count > 0;
+        };
         Action fillApps = delegate
         {
             list.BeginUpdate();
             list.Items.Clear();
             foreach (KeyValuePair<string, IntPtr> e in map)
-                list.Items.Add(new ListViewItem(new string[] { e.Key, Win32.LayoutName(e.Value) }));
+                list.Items.Add(new ListViewItem(new string[] { e.Key, Win32.LayoutName(e.Value), offApps.Contains(e.Key) ? "off" : "" }));
             list.EndUpdate();
-            remove.Enabled = false;
+            remove.Enabled = offButton.Enabled = onButton.Enabled = false;
         };
         remove.Click += delegate
         {
@@ -60,7 +66,18 @@ partial class AutoLangSwitcherContext
             fillApps();
         };
         removeAll.Click += delegate { ForgetAll(); fillApps(); };
-        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(remove, removeAll));
+        // Select programs (Ctrl+click or Shift+click for several) to add them to, or take them off,
+        // the Smart switch off list.
+        Action<bool> setOff = delegate(bool off)
+        {
+            List<string> exes = new List<string>();
+            foreach (ListViewItem item in list.SelectedItems) exes.Add(item.Text);
+            SetAppsOff(exes, off);
+            fillApps();
+        };
+        offButton.Click += delegate { setOff(true); };
+        onButton.Click += delegate { setOff(false); };
+        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(remove, removeAll, offButton, onButton));
 
         // ---- General
         pauseBox = new CheckBox();
@@ -201,8 +218,9 @@ partial class AutoLangSwitcherContext
         };
         Button saveOffButton = MakeButton("Save");
         saveOffButton.Click += delegate { saveOff(); };
-        offBox.Leave += delegate { saveOff(); };
-        form.FormClosing += delegate { SetOffApps(offBox.Text, true); };
+        // Only when edited: the Apps tab may have changed the list since the box was filled.
+        offBox.Leave += delegate { if (offBox.Modified) saveOff(); };
+        form.FormClosing += delegate { if (offBox.Modified) SetOffApps(offBox.Text, true); };
         TabPage offTab = MakeTab("Smart switch off", offPanel, MakeButtonBar(saveOffButton));
 
         // ---- Settings file
@@ -267,6 +285,7 @@ partial class AutoLangSwitcherContext
         tabs.SelectedIndexChanged += delegate
         {
             if (tabs.SelectedTab == appsTab) fillApps();
+            else if (tabs.SelectedTab == offTab) offBox.Text = OffAppsText();
             else if (tabs.SelectedTab == fileTab) fillFile();
             else if (tabs.SelectedTab == logTab) fillLog();
         };

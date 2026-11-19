@@ -169,7 +169,20 @@ partial class AutoLangSwitcherContext
         foreach (string a in text.Split(new char[] { ' ', ',', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
             offApps.Add(a.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? a : a + ".exe");
         offHwnd = IntPtr.Zero;   // work it out again
-        if (!save) return;
+        if (save) SaveOffApps();
+    }
+
+    // Turns smart switch off (or back on) in these programs, as picked on the Apps tab.
+    void SetAppsOff(IEnumerable<string> exes, bool off)
+    {
+        foreach (string exe in exes)
+            if (off) offApps.Add(exe); else offApps.Remove(exe);
+        offHwnd = IntPtr.Zero;
+        SaveOffApps();
+    }
+
+    void SaveOffApps()
+    {
         try
         {
             Directory.CreateDirectory(DataDir);

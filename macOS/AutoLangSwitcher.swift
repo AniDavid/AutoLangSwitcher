@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var appsTable: NSTableView?
     var removeButton: NSButton?
     var appRows: [(app: String, source: String)] = []
+    var smartOffButtons: [NSButton] = []
     var pauseBox: NSButton?
     var loginBox: NSButton?
     var savedListView: NSTextView?
@@ -540,7 +541,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func appsTab() -> NSView {
         let table = NSTableView()
-        for (id, title, width) in [("app", "Program", CGFloat(240)), ("source", "Input source", CGFloat(220))] {
+        for (id, title, width) in [("app", "Program", CGFloat(220)), ("source", "Input source", CGFloat(170)),
+                                   ("smart", "Smart switch", CGFloat(90))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             col.width = width
@@ -560,7 +562,12 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         remove.isEnabled = false
         removeButton = remove
         let removeAll = NSButton(title: "Remove all", target: self, action: #selector(removeAllApps))
-        return page(scroll, [remove, removeAll])
+        // Select apps (Command-click or Shift-click for several) to add them to, or take them off, the
+        // Smart switch off list.
+        let off = NSButton(title: "Smart switch off", target: self, action: #selector(smartOffForSelected))
+        let on = NSButton(title: "Smart switch on", target: self, action: #selector(smartOnForSelected))
+        smartOffButtons = [off, on]
+        return page(scroll, [remove, removeAll, off, on])
     }
 
     func fillApps() {
@@ -568,6 +575,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
             .sorted { displayName($0.app).lowercased() < displayName($1.app).lowercased() }
         appsTable?.reloadData()
         removeButton?.isEnabled = false
+        smartOffButtons.forEach { $0.isEnabled = false }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -576,15 +584,28 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let r = appRows[row]
-        let isApp = tableColumn?.identifier.rawValue == "app"
-        let field = NSTextField(labelWithString: isApp ? displayName(r.app) : InputSources.name(r.source))
+        let column = tableColumn?.identifier.rawValue
+        let isApp = column == "app"
+        let text = isApp ? displayName(r.app) : column == "smart" ? (smart.isOff(r.app) ? "off" : "") : InputSources.name(r.source)
+        let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         if isApp { field.toolTip = r.app }
         return field
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        removeButton?.isEnabled = !(appsTable?.selectedRowIndexes.isEmpty ?? true)
+        let any = !(appsTable?.selectedRowIndexes.isEmpty ?? true)
+        removeButton?.isEnabled = any
+        smartOffButtons.forEach { $0.isEnabled = any }
+    }
+
+    @objc func smartOffForSelected() { setSelectedAppsOff(true) }
+    @objc func smartOnForSelected() { setSelectedAppsOff(false) }
+
+    func setSelectedAppsOff(_ off: Bool) {
+        guard let table = appsTable else { return }
+        smart.setAppsOff(table.selectedRowIndexes.filter { $0 < appRows.count }.map { appRows[$0].app }, off)
+        fillApps()
     }
 
     @objc func removeSelectedApps() {

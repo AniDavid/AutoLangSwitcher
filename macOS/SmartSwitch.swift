@@ -116,13 +116,28 @@ final class SmartSwitch {
         offPid = -1   // work it out again
     }
 
+    func isOff(_ appID: String) -> Bool {
+        let id = appID.lowercased()
+        return offApps.contains { $0.hasSuffix("*") ? id.hasPrefix(String($0.dropLast())) : id == $0 }
+    }
+
+    // Turns smart switch off (or back on) in these apps, as picked on the Apps tab. An app turned off by a
+    // "prefix*" line stays off until that line is edited on the Smart switch off tab.
+    func setAppsOff(_ ids: [String], _ off: Bool) {
+        for id in ids.map({ $0.lowercased() }) {
+            if off { offApps.insert(id) } else { offApps.remove(id) }
+        }
+        UserDefaults.standard.set(offApps.sorted(), forKey: "smartSwitchOffApps")
+        offPid = -1
+    }
+
     // Is smart switch off in the frontmost app? Worked out once per app.
     func isOffHere() -> Bool {
         guard let front = NSWorkspace.shared.frontmostApplication else { return false }
         if front.processIdentifier == offPid { return offHere }
         offPid = front.processIdentifier
-        let id = (front.bundleIdentifier ?? front.executableURL?.lastPathComponent ?? "").lowercased()
-        offHere = offApps.contains { $0.hasSuffix("*") ? id.hasPrefix(String($0.dropLast())) : id == $0 }
+        let id = front.bundleIdentifier ?? front.executableURL?.lastPathComponent ?? ""
+        offHere = isOff(id)
         if offHere { app.log("smart switch is off in \(id) (Smart switch off tab)") }
         return offHere
     }
