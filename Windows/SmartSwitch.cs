@@ -19,6 +19,7 @@ partial class AutoLangSwitcherContext
     const uint VK_BACK = 0x08, VK_RETURN = 0x0D, VK_SPACE = 0x20;
     const string WordEnders = ".,?!:;";   // punctuation that ends a word like Space does
 
+    const int HookBudget = 150;   // ms a fix may take inside the keyboard hook (Windows gives up at about 300)
     const int LookBack = 3;   // earlier words of the same run that a fix may also change
     const int No = 0, Ambiguous = 1, Clear = 2;   // is a word typed in the wrong language?
 
@@ -40,6 +41,20 @@ partial class AutoLangSwitcherContext
     };
 
     static readonly string KeepFile = Path.Combine(DataDir, "never-change.txt");
+    // Programs where smart switch stays off (exe names). Code editors and terminals by default: there,
+    // keys may be commands (Vim), auto-complete changes the text, and Enter runs things.
+    static readonly string OffFile = Path.Combine(DataDir, "smart-switch-off.txt");
+    static readonly string[] DefaultOffApps =
+    {
+        "code.exe", "cursor.exe", "windsurf.exe", "devenv.exe", "idea64.exe", "pycharm64.exe", "rider64.exe",
+        "webstorm64.exe", "clion64.exe", "goland64.exe", "phpstorm64.exe", "rubymine64.exe", "datagrip64.exe",
+        "studio64.exe", "notepad++.exe", "sublime_text.exe", "vim.exe", "gvim.exe", "windowsterminal.exe",
+        "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "openconsole.exe", "putty.exe", "mintty.exe",
+        "wezterm-gui.exe", "alacritty.exe",
+    };
+    readonly HashSet<string> offApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    IntPtr offHwnd = IntPtr.Zero;   // the window offHere was worked out for
+    bool offHere;
 
     bool smartOn, smartAuto;
     int fixKey;   // index into FixKeys
@@ -55,11 +70,18 @@ partial class AutoLangSwitcherContext
     List<TypedWord> savedHistory = new List<TypedWord>();
     IntPtr savedHwnd = IntPtr.Zero;
     int keyCount = 0;   // key presses so far; a change means the user typed on after a word ended
+    int hookDeadline;   // a fix made inside the hook after this tick count is dropped
+    readonly HashSet<string> warmLangs = new HashSet<string>();   // languages whose dictionary is loaded
 
     // The fix for the last word, waiting for the fix key (suggest mode), or the undo of a fix just made.
     string fixText, fixBack;
     IntPtr fixHwnd, fixLayout, fixBackLayout;
     int fixErase, fixUntil;
+    // The last word ended (and what ended it), for the fix key when no fix is waiting ("force fix").
+    TypedWord lastWord;
+    string lastEnder;
+    IntPtr lastHwnd;
+    bool hasLastWord, fixForced;
     bool fixIsUndo, fixCapsOff, fixOpenEnd;   // fixOpenEnd: ended with punctuation, a Space may follow
     // Words never to change: the ones whose fix the user undid, plus any the user added.
     readonly HashSet<string> keepWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -85,6 +107,12 @@ partial class AutoLangSwitcherContext
             if (File.Exists(KeepFile)) SetKeepWords(File.ReadAllText(KeepFile, Encoding.UTF8), false);
         }
         catch (Exception ex) { Log("could not read the never-change list: " + ex.Message); }
+        try
+        {
+            if (File.Exists(OffFile)) SetOffApps(File.ReadAllText(OffFile, Encoding.UTF8), false);
+            else foreach (string exe in DefaultOffApps) offApps.Add(exe);
+        }
+        catch (Exception ex) { Log("could not read the list of programs where smart switch is off: " + ex.Message); }
         tray.BalloonTipClicked += delegate { ApplyFix(); };
         if (smartOn) StartSmart();
     }
@@ -127,6 +155,85 @@ partial class AutoLangSwitcherContext
         if (save) SaveKeepWords();
     }
 
+    // The programs where smart switch is off, one exe name per line.
+    string OffAppsText()
+    {
+        List<string> apps = new List<string>(offApps);
+        apps.Sort(StringComparer.OrdinalIgnoreCase);
+        return string.Join("\r\n", apps.ToArray());
+    }
+
+    void SetOffApps(string text, bool save)
+    {
+        offApps.Clear();
+        foreach (string a in text.Split(new char[] { ' ', ',', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            offApps.Add(a.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? a : a + ".exe");
+        offHwnd = IntPtr.Zero;   // work it out again
+        if (save) SaveOffApps();
+    }
+
+    // Turns smart switch off (or back on) in these programs, as picked on the Apps tab.
+    void SetAppsOff(IEnumerable<string> exes, bool off)
+    {
+        foreach (string exe in exes)
+            if (off) offApps.Add(exe); else offApps.Remove(exe);
+        offHwnd = IntPtr.Zero;
+        SaveOffApps();
+    }
+
+    void SaveOffApps()
+    {
+        try
+        {
+            Directory.CreateDirectory(DataDir);
+            File.WriteAllText(OffFile, OffAppsText() + "\r\n", new UTF8Encoding(false));
+        }
+        catch (Exception ex) { Log("could not save the list of programs where smart switch is off: " + ex.Message); }
+    }
+
+    // Is smart switch off in the program that owns `fg`? Worked out once per window.
+    bool IsOffIn(IntPtr fg)
+    {
+        if (fg == offHwnd) return offHere;
+        offHwnd = fg;
+        string exe = Win32.ResolveExe(fg);
+        offHere = exe != null && offApps.Contains(exe);
+        if (offHere) Log("smart switch is off in " + exe + " (Smart switch off tab)");
+        return offHere;
+    }
+
+    // The settings box's text, plus words added to the list (by an undo) since the box showed `shown`.
+    void MergeKeepWords(string text, ICollection<string> shown)
+    {
+        List<string> added = new List<string>();
+        foreach (string w in keepWords) if (!shown.Contains(w)) added.Add(w);
+        SetKeepWords(text, false);
+        foreach (string w in added) keepWords.Add(w);
+        SaveKeepWords();
+    }
+
+    // Is the typed word on the never-change list? Undone words are saved without a trailing comma or
+    // period, but those keys may still be in the word (on a Hebrew/English PC they are Hebrew letters).
+    bool IsKept(string typed)
+    {
+        return keepWords.Contains(typed) || keepWords.Contains(typed.TrimEnd(WordEnders.ToCharArray()));
+    }
+
+    // True once every installed language's dictionary is loaded. Loading one can take long, so it never
+    // happens inside the hook: the missing ones are loaded right after it returns.
+    bool SpellersReady()
+    {
+        bool ready = true;
+        foreach (IntPtr hkl in Win32.Layouts())
+        {
+            string lang = LangOf(hkl);
+            if (warmLangs.Contains(lang)) continue;
+            ready = false;
+            ui.Post(delegate { Speller.Check(lang, "a"); warmLangs.Add(lang); }, null);
+        }
+        return ready;
+    }
+
     void SaveKeepWords()
     {
         try
@@ -147,8 +254,7 @@ partial class AutoLangSwitcherContext
         mouseHook = Win32.SetWindowsHookEx(Win32.WH_MOUSE_LL, mouseProc, Win32.GetModuleHandle(null), 0);
         Log(keyHook != IntPtr.Zero ? "smart switch on" :
             "smart switch FAILED to start (error " + Marshal.GetLastWin32Error() + ")");
-        // Load the dictionaries now: a word ended with Enter is checked inside the hook, which must be quick.
-        foreach (IntPtr hkl in Win32.Layouts()) Speller.Check(LangOf(hkl), "a");
+        SpellersReady();   // load the dictionaries soon: a word ended with Enter is checked inside the hook
     }
 
     void StopSmart()
@@ -199,7 +305,11 @@ partial class AutoLangSwitcherContext
                     EndRun();
                 }
                 else if (savedHwnd != IntPtr.Zero && root == Win32.RootOf(savedHwnd))
+                {
                     savedHwnd = IntPtr.Zero;   // a click back into the window left may move its cursor
+                    savedWord = new List<Stroke>();
+                    savedHistory = new List<TypedWord>();
+                }
             }
         }
         catch { /* never let a hook callback crash the app */ }
@@ -215,14 +325,29 @@ partial class AutoLangSwitcherContext
     // Returns true to swallow the key: the fix key when it applies a fix, or Enter when a fix comes first.
     bool OnKey(uint vk, uint sc)
     {
-        if (fixText != null && IsFixKey(vk))
+        // A program on the off list: its keys are left alone and don't touch the word of other windows.
+        if (IsOffIn(Win32.GetForegroundWindow())) return false;
+        if (IsFixKey(vk))
         {
-            ui.Post(delegate { ApplyFix(); }, null);
-            return true;
+            if (fixText != null)
+            {
+                ui.Post(delegate { ApplyFix(); }, null);
+                return true;
+            }
+            // No fix waiting: convert the word just typed anyway ("tbh" typed for the Hebrew word for "I": real in both languages).
+            IntPtr fgNow = Win32.GetForegroundWindow();
+            if (smartOn && !paused && ((word.Count > 0 && fgNow == wordHwnd) || (word.Count == 0 && hasLastWord && fgNow == lastHwnd)))
+            {
+                TypedWord w = word.Count > 0 ? TakeWord(fgNow) : lastWord;
+                string ender = word.Count > 0 ? "" : lastEnder;
+                ui.Post(delegate { ForceFix(w, ender, fgNow); }, null);
+                return true;
+            }
         }
         if (IsModifier(vk)) return false;
         keyCount++;
-        if (vk == VK_SPACE && fixText != null && fixOpenEnd && !fixIsUndo)
+        if (vk == VK_SPACE && fixText != null && fixOpenEnd && !fixIsUndo && !paused &&
+            Win32.GetForegroundWindow() == fixHwnd)
         {
             // "akuo," then Space: the suggestion stays, and the fix keeps the Space.
             fixText += " ";
@@ -246,7 +371,7 @@ partial class AutoLangSwitcherContext
             // Back in the window typed in just before (Alt+Tab, the taskbar): carry on with its word.
             List<Stroke> w = word;
             List<TypedWord> h = history;
-            bool back = fg == savedHwnd;
+            bool back = savedHwnd != IntPtr.Zero && fg == savedHwnd;
             word = back ? savedWord : new List<Stroke>();
             history = back ? savedHistory : new List<TypedWord>();
             savedWord = w;
@@ -257,7 +382,11 @@ partial class AutoLangSwitcherContext
         if (vk == VK_BACK)
         {
             if (word.Count > 0) word.RemoveAt(word.Count - 1);
-            else history.Clear();   // editing an earlier word: the run no longer matches the screen
+            else
+            {
+                history.Clear();   // editing an earlier word: the run no longer matches the screen
+                hasLastWord = false;
+            }
             return false;
         }
         if (vk == VK_SPACE)
@@ -268,14 +397,13 @@ partial class AutoLangSwitcherContext
         if (vk == VK_RETURN)
         {
             // Fix-automatically mode checks the word before Enter goes through (it may send a message):
-            // right here in the hook, so nothing typed after Enter can come first.
+            // right here in the hook, so nothing typed after Enter can come first. Not Shift+Enter (a new
+            // line in chat apps), which the retyped plain Enter would turn into Send.
             bool swallow = false;
-            if (smartAuto && word.Count >= MinLetters)
+            if (smartAuto && word.Count >= MinLetters && !Win32.IsDown(0x10) && SpellersReady())
             {
-                TypedWord w = new TypedWord();
-                w.Keys = word.ToArray();
-                w.Layout = Win32.LayoutOf(fg);
-                swallow = CheckWord(w, history.ToArray(), fg, keyCount, "", (ushort)VK_RETURN);
+                hookDeadline = Environment.TickCount + HookBudget;
+                swallow = CheckWord(TakeWord(fg), history.ToArray(), fg, keyCount, "", (ushort)VK_RETURN);
             }
             EndRun();
             return swallow;   // when fixed, the retyping ends with a new Enter
@@ -310,26 +438,39 @@ partial class AutoLangSwitcherContext
             EndRun();   // two spaces in a row, or punctuation after a space
             return;
         }
-        TypedWord w = new TypedWord();
-        w.Keys = word.ToArray();
-        w.Layout = Win32.LayoutOf(fg);
+        TypedWord w = TakeWord(fg);
+        lastWord = w;
+        lastEnder = ender;
+        lastHwnd = fg;
+        hasLastWord = true;
         TypedWord[] before = history.ToArray();
         int count = keyCount;
         ui.Post(delegate { CheckWord(w, before, fg, count, ender, 0); }, null);
         word.Clear();
-        if (ender != " ")
+        // Punctuation ends the run too, also when its key went into the word as a letter ("akuo,").
+        char last = CharOf(w.Keys[w.Keys.Length - 1], w.Layout);
+        if (ender != " " || (last != '\0' && WordEnders.IndexOf(last) >= 0))
         {
-            history.Clear();   // punctuation ends the run too
+            history.Clear();
             return;
         }
         history.Add(w);
         if (history.Count > LookBack) history.RemoveAt(0);
     }
 
+    TypedWord TakeWord(IntPtr fg)
+    {
+        TypedWord w = new TypedWord();
+        w.Keys = word.ToArray();
+        w.Layout = Win32.LayoutOf(fg);
+        return w;
+    }
+
     void EndRun()
     {
         word.Clear();
         history.Clear();
+        hasLastWord = false;
     }
 
     static bool IsModifier(uint vk)
@@ -347,11 +488,11 @@ partial class AutoLangSwitcherContext
         IntPtr layout = current.Layout;
         string lang = LangOf(layout);
         string cur = TextOf(current.Keys, layout);
-        if (cur != null && !keepWords.Contains(cur) && IsCapsLockSlip(current.Keys, cur))
+        if (cur != null && !IsKept(cur) && IsCapsLockSlip(current.Keys, cur))
         {
             Log("smart switch " + curExe + ": word typed with Caps Lock on" + (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
             return OfferFix(SwapCase(cur) + ender, cur + ender, layout, layout, hwnd, ender, thenKey, true,
-                "Caps Lock was on? Press " + FixKeyName + " to fix the word and turn Caps Lock off.");
+                "Caps Lock was on? Press " + FixKeyName + " to fix the word and turn Caps Lock off.", false);
         }
         // The end of the run, current word last. A word typed with another layout, or one on the
         // never-change list, cuts it.
@@ -362,7 +503,7 @@ partial class AutoLangSwitcherContext
         foreach (TypedWord w in all)
         {
             string t = w.Layout == layout ? TextOf(w.Keys, layout) : null;
-            if (t == null || keepWords.Contains(t)) { run.Clear(); typedWords.Clear(); continue; }
+            if (t == null || IsKept(t)) { run.Clear(); typedWords.Clear(); continue; }
             run.Add(w.Keys);
             typedWords.Add(t);
         }
@@ -385,7 +526,7 @@ partial class AutoLangSwitcherContext
                 Win32.LayoutName(other) + (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
             return OfferFix(meantRun + ender, typedRun + ender, other, layout, hwnd, ender, thenKey, false,
                 "Typed in the wrong language? Press " + FixKeyName + " to change the last " + what + " to " +
-                Win32.LayoutName(other) + ".");
+                Win32.LayoutName(other) + ".", false);
         }
         // "akuo,": on a Hebrew/English PC the comma key is also the Hebrew letter tav, so it went into
         // the word. Try again with it as punctuation.
@@ -404,8 +545,9 @@ partial class AutoLangSwitcherContext
 
     // Makes the fix (fix-automatically mode) or offers it. Returns true if it was made.
     bool OfferFix(string text, string back, IntPtr layout, IntPtr backLayout, IntPtr hwnd, string ender,
-                  ushort thenKey, bool capsOff, string suggestion)
+                  ushort thenKey, bool capsOff, string suggestion, bool force)
     {
+        fixForced = force;
         fixText = text;
         fixBack = back;
         fixErase = back.Length;   // the words and what was typed after them
@@ -416,7 +558,7 @@ partial class AutoLangSwitcherContext
         fixCapsOff = capsOff;
         fixOpenEnd = ender.Length == 1 && ender != " " && thenKey == 0;
         fixUntil = Environment.TickCount + 10000;
-        if (smartAuto) return ApplyFix(thenKey);
+        if (smartAuto || force) return ApplyFix(thenKey);
         tray.ShowBalloonTip(10000, Title, suggestion, ToolTipIcon.Info);
         return false;
     }
@@ -427,6 +569,12 @@ partial class AutoLangSwitcherContext
         string text = fixText;
         fixText = null;
         if (text == null || Elapsed(fixUntil) || Win32.GetForegroundWindow() != fixHwnd) return false;
+        if (thenKey != 0 && Environment.TickCount - hookDeadline > 0)
+        {
+            // Windows may already have let the Enter through: a fix now would send a second message.
+            Log("smart switch " + curExe + ": the check took too long, word left alone");
+            return false;
+        }
         int error;
         if (fixLayout != fixBackLayout)
             Win32.RequestLayout(fixHwnd, fixLayout, out error);   // Poll then remembers it like a manual switch
@@ -435,6 +583,13 @@ partial class AutoLangSwitcherContext
         if (thenKey != 0) after.Add(thenKey);
         Win32.Retype(fixErase, text, after.ToArray());
         history.Clear();   // the screen now differs from what was typed
+        word.Clear();
+        hasLastWord = false;
+        if (fixIsUndo && fixForced)
+        {
+            Log("smart switch " + curExe + ": fix undone");
+            return true;
+        }
         if (fixIsUndo)
         {
             foreach (string w in text.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
@@ -454,6 +609,39 @@ partial class AutoLangSwitcherContext
         fixBackLayout = fixedLayout;
         fixUntil = Environment.TickCount + 10000;
         return true;
+    }
+
+    // The fix key with no fix waiting: change the word to the other keyboard language, even though it
+    // looked right (a real word in both). With more than two languages, one where it is a real word wins.
+    void ForceFix(TypedWord w, string ender, IntPtr hwnd)
+    {
+        if (!smartOn || Win32.GetForegroundWindow() != hwnd || Win32.IsPasswordBox(hwnd)) return;
+        Stroke[] keys = w.Keys;
+        char last = CharOf(keys[keys.Length - 1], w.Layout);
+        if (keys.Length > 1 && last != '\0' && WordEnders.IndexOf(last) >= 0)
+        {
+            // "akuo," with the comma key: keep the comma as it is
+            Array.Resize(ref keys, keys.Length - 1);
+            ender = last + ender;
+        }
+        string typed = TextOf(keys, w.Layout);
+        if (typed == null) return;
+        IntPtr best = IntPtr.Zero;
+        string bestText = null;
+        foreach (IntPtr other in Win32.Layouts())
+        {
+            if (LangOf(other) == LangOf(w.Layout)) continue;
+            string t = TextOf(keys, other);
+            if (t == null) continue;
+            if (bestText == null || (IsWord(LangOf(other), t) == true && IsWord(LangOf(best), bestText) != true))
+            {
+                best = other;
+                bestText = t;
+            }
+        }
+        if (bestText == null) return;
+        Log("smart switch " + curExe + ": " + FixKeyName + " pressed, last word changed to " + Win32.LayoutName(best));
+        OfferFix(bestText + ender, typed + ender, best, w.Layout, hwnd, ender, 0, false, null, true);
     }
 
     // "hELLO": typed with Caps Lock on, holding Shift for the first letter, as when Caps Lock was hit by mistake.
@@ -528,7 +716,7 @@ partial class AutoLangSwitcherContext
         ("i ok js ts ai ui ux vs tv pc os ip id pm am db hr pr qa eu uk " +
          "api sdk cli gui url uri http https html css json xml yaml sql cmd exe dll msi pdf docx xlsx pptx csv txt " +
          "zip usb ssd hdd cpu gpu ram rom ios wifi vpn dns tcp udp ssh ftp smtp git npm nuget sudo bash apt dev prod " +
-         "ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk tbh etc aka").Split(' '));
+         "ceo cto cfo faq diy asap btw fyi imo imho idk lol omg thx pls plz brb afk etc aka").Split(' '));
 
     // Real 1-2 letter words, for languages whose dictionary accepts almost any one or two letters
     // (Windows' Hebrew dictionary accepts single letters). Longer words go to the dictionary.
@@ -639,6 +827,7 @@ partial class AutoLangSwitcherContext
         RunCheck(check, en, he, "akuo do", 0, "'akuo do': ambiguous 'do' after shalom is changed with it");
         RunCheck(check, en, he, "to do so", -1, "'to do so': all ambiguous, left alone");
         RunCheck(check, en, he, "hello world", -1, "'hello world' is left alone");
+        RunCheck(check, en, he, "akuo tbh", 0, "'akuo tbh': 'tbh' (the Hebrew word for I) is changed with shalom");
         // "hELLO": Caps Lock on, Shift held for the first letter.
         Stroke[] slip = KeysOf("hello", en);
         for (int i = 0; i < slip.Length; i++) slip[i].Caps = true;

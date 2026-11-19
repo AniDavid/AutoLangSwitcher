@@ -157,6 +157,7 @@ static class Win32
         return RootOf(WindowFromPoint(pt));
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern short VkKeyScanEx(char ch, IntPtr hkl);
+    [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("user32.dll")] public static extern uint MapVirtualKeyEx(uint code, uint mapType, IntPtr hkl);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -202,6 +203,9 @@ static class Win32
     public static void Retype(int erase, string text, params ushort[] thenKeys)
     {
         List<INPUT> inputs = new List<INPUT>();
+        // Let go of modifiers still held (the Ctrl+Shift+Z fix key): Ctrl+Backspace would erase whole words.
+        foreach (ushort m in new ushort[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C })
+            if (IsDown(m)) inputs.Add(Key(m, (char)MapVirtualKey(m, 0), KEYEVENTF_KEYUP));
         for (int i = 0; i < erase; i++)
         {
             inputs.Add(Key(0x08, '\0', 0));
@@ -214,8 +218,9 @@ static class Win32
         }
         foreach (ushort vk in thenKeys)
         {
-            inputs.Add(Key(vk, (char)0, 0));
-            inputs.Add(Key(vk, (char)0, KEYEVENTF_KEYUP));
+            char sc = (char)MapVirtualKey(vk, 0);   // some apps (terminals, remote desktop) read the scan code
+            inputs.Add(Key(vk, sc, 0));
+            inputs.Add(Key(vk, sc, KEYEVENTF_KEYUP));
         }
         SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
     }

@@ -39,19 +39,25 @@ partial class AutoLangSwitcherContext
         list.MultiSelect = true;
         list.HideSelection = false;
         list.Columns.Add("Program", 260);
-        list.Columns.Add("Language", 220);
+        list.Columns.Add("Language", 160);
+        list.Columns.Add("Smart switch", 90);
         Button remove = MakeButton("Remove");
         Button removeAll = MakeButton("Remove all");
-        remove.Enabled = false;
-        list.SelectedIndexChanged += delegate { remove.Enabled = list.SelectedItems.Count > 0; };
+        Button offButton = MakeButton("Smart switch off");
+        Button onButton = MakeButton("Smart switch on");
+        remove.Enabled = offButton.Enabled = onButton.Enabled = false;
+        list.SelectedIndexChanged += delegate
+        {
+            remove.Enabled = offButton.Enabled = onButton.Enabled = list.SelectedItems.Count > 0;
+        };
         Action fillApps = delegate
         {
             list.BeginUpdate();
             list.Items.Clear();
             foreach (KeyValuePair<string, IntPtr> e in map)
-                list.Items.Add(new ListViewItem(new string[] { e.Key, Win32.LayoutName(e.Value) }));
+                list.Items.Add(new ListViewItem(new string[] { e.Key, Win32.LayoutName(e.Value), offApps.Contains(e.Key) ? "off" : "" }));
             list.EndUpdate();
-            remove.Enabled = false;
+            remove.Enabled = offButton.Enabled = onButton.Enabled = false;
         };
         remove.Click += delegate
         {
@@ -60,7 +66,18 @@ partial class AutoLangSwitcherContext
             fillApps();
         };
         removeAll.Click += delegate { ForgetAll(); fillApps(); };
-        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(remove, removeAll));
+        // Select programs (Ctrl+click or Shift+click for several) to add them to, or take them off,
+        // the Smart switch off list.
+        Action<bool> setOff = delegate(bool off)
+        {
+            List<string> exes = new List<string>();
+            foreach (ListViewItem item in list.SelectedItems) exes.Add(item.Text);
+            SetAppsOff(exes, off);
+            fillApps();
+        };
+        offButton.Click += delegate { setOff(true); };
+        onButton.Click += delegate { setOff(false); };
+        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(remove, removeAll, offButton, onButton));
 
         // ---- General
         pauseBox = new CheckBox();
@@ -114,7 +131,7 @@ partial class AutoLangSwitcherContext
         keyRow.AutoSize = true;
         keyRow.Margin = new Padding(17, 3, 3, 0);
         Label keyLabel = new Label();
-        keyLabel.Text = "Fix key (also undoes a fix):";
+        keyLabel.Text = "Fix key (also undoes a fix, or changes the last word on request):";
         keyLabel.AutoSize = true;
         keyLabel.Margin = new Padding(3, 6, 3, 0);
         ComboBox keyBox = new ComboBox();
@@ -133,13 +150,17 @@ partial class AutoLangSwitcherContext
         keepBox.Size = new Size(320, 70);
         keepBox.Margin = new Padding(20, 3, 3, 3);
         keepBox.Text = KeepWordsText();
+        // The words the box was filled with: an undo while the window is open adds words that the box
+        // doesn't show, and saving the box must not drop them.
+        HashSet<string> keepShown = new HashSet<string>(keepWords, StringComparer.OrdinalIgnoreCase);
         EventHandler saveKeep = delegate
         {
-            SetKeepWords(keepBox.Text, true);
+            MergeKeepWords(keepBox.Text, keepShown);
+            keepShown = new HashSet<string>(keepWords, StringComparer.OrdinalIgnoreCase);
             keepBox.Text = KeepWordsText();
         };
         keepBox.Leave += saveKeep;
-        form.FormClosing += delegate { SetKeepWords(keepBox.Text, true); };
+        form.FormClosing += delegate { MergeKeepWords(keepBox.Text, keepShown); };
         Action enable = delegate
         {
             suggestRadio.Enabled = autoRadio.Enabled = keyBox.Enabled = keepBox.Enabled = smartBox.Checked;
@@ -174,6 +195,33 @@ partial class AutoLangSwitcherContext
             general.Controls.Add(restart);
         }
         TabPage generalTab = MakeTab("General", general, null);
+
+        // ---- Smart switch off: programs where smart switch leaves the typing alone
+        TextBox offBox = new TextBox();
+        offBox.Multiline = true;
+        offBox.ScrollBars = ScrollBars.Vertical;
+        offBox.Dock = DockStyle.Fill;
+        offBox.Text = OffAppsText();
+        Label offLabel = new Label();
+        offLabel.Dock = DockStyle.Top;
+        offLabel.Height = 48;
+        offLabel.Text = "Smart Keyboard Auto Switch stays off in these programs (exe names, one per line). " +
+            "Code editors and terminals are here to start with: keys there can be commands, and auto-complete changes the text.";
+        Panel offPanel = new Panel();
+        offPanel.Dock = DockStyle.Fill;
+        offPanel.Controls.Add(offBox);     // Fill is added first so it docks last
+        offPanel.Controls.Add(offLabel);
+        Action saveOff = delegate
+        {
+            SetOffApps(offBox.Text, true);
+            offBox.Text = OffAppsText();
+        };
+        Button saveOffButton = MakeButton("Save");
+        saveOffButton.Click += delegate { saveOff(); };
+        // Only when edited: the Apps tab may have changed the list since the box was filled.
+        offBox.Leave += delegate { if (offBox.Modified) saveOff(); };
+        form.FormClosing += delegate { if (offBox.Modified) SetOffApps(offBox.Text, true); };
+        TabPage offTab = MakeTab("Smart switch off", offPanel, MakeButtonBar(saveOffButton));
 
         // ---- Settings file
         TextBox fileBox = MakeTextView();
@@ -232,11 +280,12 @@ partial class AutoLangSwitcherContext
         help.Text = HelpText.Replace("\r\n", "\n").Replace("\n", "\r\n");   // source may be checked out with LF or CRLF
         TabPage helpTab = MakeTab("Help", help, null);
 
-        tabs.TabPages.AddRange(new TabPage[] { appsTab, generalTab, fileTab, logTab, helpTab });
+        tabs.TabPages.AddRange(new TabPage[] { appsTab, generalTab, offTab, fileTab, logTab, helpTab });
         // Reload a tab each time it is shown, so it is never out of date.
         tabs.SelectedIndexChanged += delegate
         {
             if (tabs.SelectedTab == appsTab) fillApps();
+            else if (tabs.SelectedTab == offTab) offBox.Text = OffAppsText();
             else if (tabs.SelectedTab == fileTab) fillFile();
             else if (tabs.SelectedTab == logTab) fillLog();
         };
@@ -283,6 +332,8 @@ Turn it on in the General tab. When you finish a word (with Space, punctuation l
 Either way, the keyboard switches to that language, and it is remembered for the program.
 Short words that are real in both languages (like 'do', which is the Hebrew word for 'also' on the Hebrew keys) are decided by the words around them: up to 3 earlier words are changed together with a clearly wrong one, unless a word before them shows you meant the language you typed.
 Changed a word you didn't want changed? Press the fix key right away (before typing anything else) to put it back. That word goes on the 'Never change these words' list on the General tab, where you can also add words yourself or remove them.
+Typed a word that is real in both languages, like 'tbh' when you meant the Hebrew word for 'I'? Nothing is suggested, because the word looks right. Press the fix key right after it anyway (before typing anything else) to change it to your other keyboard language; press it again to put it back.
+Smart switch stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Windows Terminal, PowerShell, cmd and others): there, keys can be commands and auto-complete changes the text. Edit the list on the 'Smart switch off' tab to change that.
 Typed 'hELLO' because Caps Lock was on by mistake? It is fixed to 'Hello' (or suggested) and Caps Lock is turned off.
 It checks words with the spelling dictionaries built into Windows, and with letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish. Only your installed keyboard languages are used. Words that aren't in any dictionary, like names, are left alone.
 To do this it has to read your typing. The letters of the current word are kept in memory only until you finish it; nothing is logged or sent, and only the never-change list is saved (in never-change.txt next to the settings file). Password boxes are skipped where Windows can tell they are password boxes.

@@ -16,7 +16,7 @@ using System.Reflection;
 using System.Windows.Forms;
 
 // The one place the version is set: shown in About, and the installer reads it from the exe.
-[assembly: AssemblyVersion("1.2.0")]
+[assembly: AssemblyVersion("1.2.1")]
 [assembly: AssemblyTitle("AutoLangSwitcher")]
 
 static class Program
