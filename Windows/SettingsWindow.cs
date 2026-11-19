@@ -107,6 +107,13 @@ partial class AutoLangSwitcherContext
         general.Controls.Add(pauseBox);
         general.Controls.Add(startupBox);
 
+        CheckBox updatesBox = new CheckBox();
+        updatesBox.Text = "Check for updates once a day";
+        updatesBox.AutoSize = true;
+        updatesBox.Checked = autoUpdateCheck;
+        updatesBox.CheckedChanged += delegate { SetAutoUpdateCheck(updatesBox.Checked); };
+        general.Controls.Add(updatesBox);
+
         CheckBox smartBox = new CheckBox();
         smartBox.Text = "Smart Keyboard Auto Switch: fix words typed in the wrong keyboard language";
         smartBox.AutoSize = true;
@@ -345,6 +352,7 @@ TIPS
   - If a program keeps getting the wrong language, open the Log tab right after it happens, click Copy all, and paste it into an issue on GitHub:
     https://github.com/AniDavid/AutoLangSwitcher/issues
   - Pause it from the tray menu if you want to switch languages by hand for a while.
+  - 'Check for updates...' in the tray menu asks GitHub for the latest version. It also checks once a day by itself, unless you untick that on the General tab; only the version number is fetched, nothing is sent.
   - While Caps Lock is on, the tray keyboard turns orange and shows a capital A.";
 
     // A tab with the main control filling it and an optional button bar along the bottom.

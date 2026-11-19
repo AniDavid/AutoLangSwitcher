@@ -805,6 +805,8 @@ partial class AutoLangSwitcherContext
             check(good >= samples.Length * 9 / 10, lang + " letter statistics accept " + good + "/" + samples.Length + " common words");
         }
 
+        UpdateSelfTest(check);
+
         IntPtr en = FindLayout("en"), he = FindLayout("he");
         if (en == IntPtr.Zero || he == IntPtr.Zero)
         {
