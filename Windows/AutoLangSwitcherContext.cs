@@ -73,6 +73,8 @@ partial class AutoLangSwitcherContext : ApplicationContext
         menu.Items.Add(settingsItem);
         menu.Items.Add(pauseItem);
         menu.Items.Add(new ToolStripSeparator());
+        updateItem = new ToolStripMenuItem("Check for updates...", null, delegate { UpdateMenuClicked(); });
+        menu.Items.Add(updateItem);
         menu.Items.Add(new ToolStripMenuItem("About " + Title, null, delegate { ShowAbout(); }));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { ExitThread(); }));
 
@@ -100,6 +102,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
 
         OnForeground(Win32.GetForegroundWindow());
         LoadSmartSettings();
+        StartUpdateChecks();
     }
 
     protected override void ExitThreadCore()
@@ -108,6 +111,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
         StopSmart();
         pollTimer.Stop();
         saveTimer.Stop();
+        updateTimer.Stop();
         if (dirty) Save();
         if (settingsForm != null) settingsForm.Close();
         tray.Visible = false;

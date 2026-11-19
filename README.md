@@ -20,7 +20,7 @@ By default it does not read what you type; it only restores each program's langu
 
 אפשר גם להפעיל את **Smart Keyboard Auto Switch** (כבוי כברירת מחדל): הקלדתם "akuo" במקום "שלום"? התוכנה תציע לתקן את המילה, או תתקן אותה לבד, ותחליף את שפת המקלדת. כדי לעשות את זה היא קוראת את ההקלדה, אבל לא שומרת ולא שולחת שום דבר.
 
-**להורדה ל-Windows:** [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi), או בשורת הפקודה: `winget install AniDavid.AutoLangSwitcher`. התוכנה עדיין לא חתומה דיגיטלית, ולכן Windows תציג אזהרה. לחצו על **More info** ואז על **Run anyway**.
+**להורדה ל-Windows:** [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi), או בשורת הפקודה: `winget install AniDavid.AutoLangSwitcher`. התוכנה בודקת פעם ביום אם יש גרסה חדשה (אפשר לכבות את זה בלשונית General), ואפשר גם לבדוק ידנית דרך **Check for updates...** בתפריט של הסמל. התוכנה עדיין לא חתומה דיגיטלית, ולכן Windows תציג אזהרה. לחצו על **More info** ואז על **Run anyway**.
 
 </div>
 
@@ -57,6 +57,7 @@ Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .N
 |---|---|
 | **Settings...** | Opens the Settings window (double-clicking the icon does the same). |
 | **Pause** | Temporarily stops switching languages. |
+| **Check for updates...** | Asks GitHub for the latest version and offers the download page if there's a newer one. It also checks once a day by itself (untick **Check for updates once a day** on the **General** tab to stop that). |
 | **About AutoLangSwitcher** | Shows the version and credits. |
 | **Exit** | Closes AutoLangSwitcher. |
 
@@ -67,7 +68,7 @@ While **Caps Lock** is on, the tray keyboard turns orange and shows a capital **
 | Tab | What it shows |
 |---|---|
 | **Apps** | Each remembered program and its language. Select programs (Ctrl+click for several) and click **Remove** to forget them, or **Remove all**. **Smart switch off** / **Smart switch on** add the selected programs to, or take them off, the Smart switch off list; the **Smart switch** column shows which are off. |
-| **General** | **Pause**, **Start with Windows**, **Smart Keyboard Auto Switch** (mode, fix key, never-change list), and whether AutoLangSwitcher is running as administrator. |
+| **General** | **Pause**, **Start with Windows**, **Check for updates once a day**, **Smart Keyboard Auto Switch** (mode, fix key, never-change list), and whether AutoLangSwitcher is running as administrator. |
 | **Smart switch off** | The programs where Smart Keyboard Auto Switch stays off, one exe name per line. Code editors and terminals are on it to start with. |
 | **Settings file** | The saved list, exactly as stored on disk. |
 | **Log** | What AutoLangSwitcher has been doing. Useful if something doesn't work: **Copy all** and paste it into an issue. |

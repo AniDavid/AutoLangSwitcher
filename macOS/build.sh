@@ -28,8 +28,8 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundleIdentifier</key>       <string>com.autolangswitcher.app</string>
     <key>CFBundleExecutable</key>       <string>AutoLangSwitcher</string>
     <key>CFBundlePackageType</key>      <string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.2.1</string>
-    <key>CFBundleVersion</key>          <string>7</string>
+    <key>CFBundleShortVersionString</key><string>1.2.2</string>
+    <key>CFBundleVersion</key>          <string>8</string>
     <key>LSMinimumSystemVersion</key>   <string>11.0</string>
     <key>LSUIElement</key>              <true/>
 </dict>
