@@ -34,11 +34,11 @@ There's nothing to set up. Use your computer as usual:
 
 It remembers by program, not by window or tab. All browser tabs share one language, for example.
 
-**Language rules** (optional): to give a program a fixed language instead of the last one you used, right-click it on the **Apps** tab of the Settings window:
+**Language rules** (optional): to give a program a fixed language instead of the last one you used, choose one in its **Start in** or **Locked to** column on the **Apps** tab of the Settings window:
 
 - **Lock to** a language: the program gets it every time it comes to the front. You can still switch while you're in it, but that isn't remembered. For example, lock VS Code to English so a Hebrew comment doesn't stick.
 - **Start in** a language: the program gets it when it's opened after being closed; while it runs, your switches are remembered as usual. For example, WhatsApp always opens in Hebrew.
-- **Both**: a program can have both, for example Outlook opens in Hebrew and is English every time you come back to it. **No lock** / **No start language** in each menu removes that rule.
+- **Both**: a program can have both, for example Outlook opens in Hebrew and is English every time you come back to it. **None** removes a rule.
 
 ---
 
@@ -74,7 +74,7 @@ While **Caps Lock** is on, the tray keyboard turns orange and shows a capital **
 
 | Tab | What it shows |
 |---|---|
-| **Apps** | Each remembered program, by name, with its language, its rule and whether Smart Keyboard Auto Switch is on there. **Right-click** a program (or double-click it) to lock its language, set the language it opens in, turn smart switch off or on there, or forget it; Ctrl+click selects several. **Remove all** forgets every program. |
+| **Apps** | Each remembered program, by name, with its language. Pick a language in the **Start in** and **Locked to** columns, and tick or untick **Smart switch** to turn Smart Keyboard Auto Switch on or off there. **Right-click** a program to forget it, or select several (Ctrl+click) and right-click to change them together. **Remove all** forgets every program. |
 | **General** | **Pause**, **Start with Windows**, **Check for updates once a day**, **Smart Keyboard Auto Switch** (mode, fix key, never-change list), and whether AutoLangSwitcher is running as administrator. |
 | **Smart switch off** | The programs where Smart Keyboard Auto Switch stays off, one exe name per line. Code editors and terminals are on it to start with. |
 | **Settings file** | The saved list, exactly as stored on disk. |
@@ -92,7 +92,7 @@ Typed "akuo" when you meant "שלום"? When you finish a word (with Space, punc
 - Short words that are real in both languages (English "do" is the Hebrew word "גם" on the same keys) are decided by context: up to 3 earlier words are fixed together with a clearly wrong word, so "do akuo" becomes "גם שלום", while "I went to akuo" keeps its English "to".
 - Words that aren't in any dictionary, like names, are left alone. If it changes a word you didn't want changed, press the fix key right away to put it back. That word goes on the **Never change these words** list on the General tab, where you can also add or remove words yourself.
 - A word that is real in both languages, like "tbh" typed when you meant "אני", looks right, so nothing is suggested. Press the fix key right after it anyway (before typing anything else) to change it to your other keyboard language; press it again to put it back.
-- It stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Xcode, Windows Terminal, PowerShell, Terminal, iTerm and others), where keys can be commands and auto-complete changes the text. You can edit that list on the **Smart switch off** tab, or right-click programs on the **Apps** tab.
+- It stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Xcode, Windows Terminal, PowerShell, Terminal, iTerm and others), where keys can be commands and auto-complete changes the text. You can edit that list on the **Smart switch off** tab, or untick **Smart switch** on the **Apps** tab.
 - Typed "hELLO" because Caps Lock was on by mistake? It's fixed to "Hello" (or suggested) and Caps Lock is turned off. (Windows only: on a Mac, Shift with Caps Lock still types capitals.)
 - To work, it has to read your typing. The letters of the current word stay in memory only until you finish it: nothing is logged or sent, and the only thing saved is the never-change list. While the feature is off, AutoLangSwitcher doesn't read your typing at all.
 - Some antivirus programs are suspicious of any app that reads typing. If yours complains, turn the feature off.
@@ -133,7 +133,7 @@ No special permissions are needed, unless you turn on **Smart Keyboard Auto Swit
 
 While **Caps Lock** is on, the menu bar keyboard turns orange and shows a capital **A**.
 
-The **Settings** window has the same tabs as on Windows: **Apps** (right-click an app to set a language rule, turn smart switch off or on, or forget it), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Smart switch off** (the apps where smart switch stays off, by bundle id; `com.jetbrains.*` matches a family), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
+The **Settings** window has the same tabs as on Windows: **Apps** (Start in and Locked to columns, a Smart switch tick box, right-click to forget), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Smart switch off** (the apps where smart switch stays off, by bundle id; `com.jetbrains.*` matches a family), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
 
 **Tip:** Turn off macOS's own **"Automatically switch to a document's input source"** setting so the two don't fight. It's in System Settings → Keyboard → Text Input → Input Sources → Edit.
 

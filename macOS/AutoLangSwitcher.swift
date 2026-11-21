@@ -560,8 +560,9 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func appsTab() -> NSView {
         let table = NSTableView()
-        for (id, title, width) in [("app", "Program", CGFloat(130)), ("source", "Input source", CGFloat(95)),
-                                   ("rule", "Rule", CGFloat(250)), ("smart", "Smart switch", CGFloat(80))] {
+        for (id, title, width) in [("app", "Program", CGFloat(140)), ("source", "Input source", CGFloat(95)),
+                                   ("start", "Start in", CGFloat(125)), ("lock", "Locked to", CGFloat(125)),
+                                   ("smart", "Smart switch", CGFloat(80))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             col.width = width
@@ -569,6 +570,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         }
         table.allowsMultipleSelection = true
         table.usesAlternatingRowBackgroundColors = true
+        table.rowHeight = 22   // room for the popups
         table.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
         table.dataSource = self
         table.delegate = self
@@ -585,8 +587,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         table.doubleAction = #selector(appDoubleClicked)
 
         let removeAll = NSButton(title: "Remove all", target: self, action: #selector(removeAllApps))
-        let hint = NSTextField(wrappingLabelWithString: "Right-click an app to lock its input source, set the one it opens in, " +
-                               "turn smart switch off or on, or forget it.")
+        let hint = NSTextField(wrappingLabelWithString: "Click a Start in or Locked to cell to choose an input source. " +
+                               "Right-click to forget an app, or to change several selected apps at once.")
         hint.textColor = .secondaryLabelColor
         hint.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         hint.preferredMaxLayoutWidth = 440
@@ -607,9 +609,18 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let r = appRows[row]
         let column = tableColumn?.identifier.rawValue
+        // Start in / Locked to: a popup of the enabled input sources; Smart switch: a tick box. Changes apply right away.
+        if column == "start" || column == "lock" {
+            return rulePopup(app: r.app, lock: column == "lock", row: row)
+        }
+        if column == "smart" {
+            let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(smartBoxClicked(_:)))
+            box.state = smart.isOff(r.app) ? .off : .on
+            box.tag = row
+            return box
+        }
         let isApp = column == "app"
-        let text = isApp ? displayName(r.app) : column == "smart" ? (!smart.on ? "" : smart.isOff(r.app) ? "Off" : "On")
-            : column == "rule" ? ruleText(r.app) : r.source.isEmpty ? "" : InputSources.name(r.source)
+        let text = isApp ? displayName(r.app) : r.source.isEmpty ? "" : InputSources.name(r.source)
         let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         if isApp { field.toolTip = r.app }
@@ -939,9 +950,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <h2>The tabs</h2>
         {IMG:apps}
         <ul>
-        <li><b>Apps:</b> the apps it remembers and their input sources. <b>Right-click</b> (or Control-click, or double-click) an app
-        to lock its input source or choose the one it opens in (below), turn Smart Keyboard Auto Switch off or on there, or forget it.
-        Select several with <kbd>Command</kbd>-click to change them together.</li>
+        <li><b>Apps:</b> the apps it remembers and their input sources. Click a <b>Start in</b> or <b>Locked to</b> cell to choose an
+        input source (below), and tick or untick <b>Smart switch</b> to turn Smart Keyboard Auto Switch on or off there.
+        <b>Right-click</b> (or Control-click) an app to forget it, or select several (<kbd>Command</kbd>-click) and right-click to change
+        them together.</li>
         <li><b>General:</b> pause it, start it when you log in, and Smart Keyboard Auto Switch.</li>
         <li><b>Smart switch off:</b> the apps where Smart Keyboard Auto Switch stays off, by bundle id (<code>com.jetbrains.*</code> matches a family).</li>
         <li><b>Saved list:</b> the remembered list, as stored in the app's preferences.</li>
@@ -950,8 +962,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         </ul>
 
         <h2>Language rules: lock, or start in a language</h2>
-        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, right-click it on the
-        <b>Apps</b> tab and choose:</p>
+        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, choose one in its
+        <b>Start in</b> or <b>Locked to</b> column on the <b>Apps</b> tab:</p>
         <ul>
         <li><b>Lock to:</b> the app gets this input source <b>every time</b> it comes to the front. You can still switch while you're in it,
         but that switch isn't remembered: leave and come back, and it's back to the locked one. Example: lock Terminal to ABC.</li>
@@ -960,8 +972,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <li><b>Both:</b> an app can have both: it opens in its start input source, and every time you come back to it it gets
         the locked one.</li>
         </ul>
-        <p>Each menu has a tick next to the current choice; <b>No lock</b> or <b>No start input source</b> at the bottom removes
-        that rule. The <b>Rule</b> column on the Apps tab shows each app's rules.</p>
+        <p>Choose <b>None</b> to remove a rule.</p>
 
         <h2>Smart Keyboard Auto Switch</h2>
         <p class='lead'>Optional, and off unless you turn it on in General.</p>
@@ -989,7 +1000,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into macOS, plus letter
         statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
         <li>It stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others), where keys can be commands
-        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by right-clicking an app on the <b>Apps</b> tab.</li>
+        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by unticking <b>Smart switch</b> on the <b>Apps</b> tab.</li>
         <li>macOS asks you to allow AutoLangSwitcher under System Settings &gt; Privacy &amp; Security &gt; <b>Accessibility</b>. It is needed to
         read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.</li>
         </ul>

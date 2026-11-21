@@ -96,66 +96,131 @@ partial class AutoLangSwitcherContext
         tabs.Dock = DockStyle.Fill;
 
         // ---- Apps
-        ListView list = new ListView();
-        list.Dock = DockStyle.Fill;
-        list.View = View.Details;
-        list.FullRowSelect = true;
-        list.MultiSelect = true;
-        list.HideSelection = false;
-        list.ShowItemToolTips = true;   // the exe name, over the program's name
-        list.GridLines = true;
-        list.Columns.Add("Program", 160);
-        list.Columns.Add("Language", 120);
-        list.Columns.Add("Rule", 230);
-        list.Columns.Add("Smart switch", 80);
+        // A grid: pick a language in the Start in and Locked to columns, tick or untick Smart switch.
+        DataGridView grid = new DataGridView();
+        grid.Dock = DockStyle.Fill;
+        grid.AllowUserToAddRows = false;
+        grid.AllowUserToDeleteRows = false;
+        grid.AllowUserToResizeRows = false;
+        grid.RowHeadersVisible = false;
+        grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        grid.MultiSelect = true;
+        grid.BackgroundColor = SystemColors.Window;
+        grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        DataGridViewTextBoxColumn programCol = new DataGridViewTextBoxColumn();
+        programCol.HeaderText = "Program";
+        programCol.ReadOnly = true;
+        programCol.Width = 160;
+        DataGridViewTextBoxColumn langCol = new DataGridViewTextBoxColumn();
+        langCol.HeaderText = "Language";
+        langCol.ReadOnly = true;
+        langCol.Width = 105;
+        DataGridViewComboBoxColumn startCol = new DataGridViewComboBoxColumn();
+        startCol.HeaderText = "Start in";
+        startCol.Width = 120;
+        startCol.FlatStyle = FlatStyle.Flat;
+        DataGridViewComboBoxColumn lockCol = new DataGridViewComboBoxColumn();
+        lockCol.HeaderText = "Locked to";
+        lockCol.Width = 120;
+        lockCol.FlatStyle = FlatStyle.Flat;
+        DataGridViewCheckBoxColumn smartCol = new DataGridViewCheckBoxColumn();
+        smartCol.HeaderText = "Smart switch";
+        smartCol.Width = 80;
+        grid.Columns.AddRange(new DataGridViewColumn[] { programCol, langCol, startCol, lockCol, smartCol });
         Button removeAll = MakeButton("Remove all");
+        Dictionary<string, IntPtr> layoutOf = new Dictionary<string, IntPtr>();   // dropdown text -> layout
+        bool filling = false;
         Action fillApps = delegate
         {
-            list.BeginUpdate();
-            list.Items.Clear();
+            filling = true;
+            grid.Rows.Clear();
             // Remembered programs, plus locked ones that never got a remembered language, by name.
             List<string> exes = new List<string>(map.Keys);
             foreach (string exe in rules.Keys) if (!map.ContainsKey(exe)) exes.Add(exe);
             Dictionary<string, string> names = new Dictionary<string, string>();   // looked up once each
             foreach (string exe in exes) names[exe] = DisplayName(exe);
             exes.Sort(delegate(string x, string y) { return string.Compare(names[x], names[y], StringComparison.CurrentCultureIgnoreCase); });
+            List<string> choices = new List<string>();
+            choices.Add(NoRule);
+            layoutOf.Clear();
+            foreach (IntPtr hkl in Win32.Layouts())
+            {
+                choices.Add(LayoutLabel(hkl));
+                layoutOf[LayoutLabel(hkl)] = hkl;
+            }
             foreach (string exe in exes)
             {
                 IntPtr hkl;
-                ListViewItem item = new ListViewItem(new string[] {
-                    names[exe], map.TryGetValue(exe, out hkl) ? Win32.LayoutName(hkl) : "", RuleText(exe),
-                    !smartOn ? "" : offApps.Contains(exe) ? "Off" : "On" });
-                item.Tag = exe;
-                item.ToolTipText = exe;
-                list.Items.Add(item);
+                LangRule r;
+                rules.TryGetValue(exe, out r);
+                int i = grid.Rows.Add(names[exe], map.TryGetValue(exe, out hkl) ? LayoutLabel(hkl) : "", null, null, !offApps.Contains(exe));
+                DataGridViewRow row = grid.Rows[i];
+                row.Tag = exe;
+                row.Cells[0].ToolTipText = exe;
+                for (int c = 2; c <= 3; c++)
+                {
+                    DataGridViewComboBoxCell cell = (DataGridViewComboBoxCell)row.Cells[c];
+                    IntPtr set = r == null ? IntPtr.Zero : c == 2 ? r.Start : r.Lock;
+                    cell.Items.AddRange(choices.ToArray());
+                    if (set != IntPtr.Zero && !layoutOf.ContainsKey(LayoutLabel(set)))
+                    {
+                        cell.Items.Add(LayoutLabel(set));   // a keyboard that isn't installed any more
+                        layoutOf[LayoutLabel(set)] = set;
+                    }
+                    cell.Value = set == IntPtr.Zero ? NoRule : LayoutLabel(set);
+                }
             }
-            list.EndUpdate();
+            grid.CurrentCell = null;   // nothing selected until the user clicks
+            grid.ClearSelection();
+            filling = false;
         };
-        // Right-click (or double-click, or the menu key) a program for its menu; it applies to all selected programs.
+        // A change in a cell is applied right away.
+        grid.CurrentCellDirtyStateChanged += delegate
+        {
+            if (grid.IsCurrentCellDirty) grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        };
+        grid.CellValueChanged += delegate(object sender, DataGridViewCellEventArgs e)
+        {
+            if (filling || e.RowIndex < 0) return;
+            string[] exe = { (string)grid.Rows[e.RowIndex].Tag };
+            object v = grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
+            if (e.ColumnIndex == 2 || e.ColumnIndex == 3)
+            {
+                IntPtr hkl;
+                if (!layoutOf.TryGetValue(v as string ?? "", out hkl)) hkl = IntPtr.Zero;
+                SetRule(exe, e.ColumnIndex == 3, hkl);
+            }
+            else if (e.ColumnIndex == 4) SetAppsOff(exe, !(v is bool && (bool)v));
+        };
+        grid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
+        // One click on a dropdown cell opens it.
+        grid.CellClick += delegate(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || (e.ColumnIndex != 2 && e.ColumnIndex != 3)) return;
+            grid.BeginEdit(true);
+            ComboBox box = grid.EditingControl as ComboBox;
+            if (box != null) box.DroppedDown = true;
+        };
+        // Right-click (or the menu key) for the menu; it applies to all selected programs.
         Action<Point> showMenu = delegate(Point at)
         {
             List<string> exes = new List<string>();
-            foreach (ListViewItem item in list.SelectedItems) exes.Add((string)item.Tag);
-            if (exes.Count > 0) AppMenu(exes, fillApps).Show(list, at);
+            foreach (DataGridViewRow row in grid.SelectedRows) exes.Add((string)row.Tag);
+            if (exes.Count > 0) AppMenu(exes, fillApps).Show(grid, at);
         };
-        list.MouseUp += delegate(object sender, MouseEventArgs e)
+        grid.CellMouseDown += delegate(object sender, DataGridViewCellMouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Right) return;
-            ListViewItem hit = list.GetItemAt(e.X, e.Y);
-            if (hit != null && !hit.Selected)
-            {
-                list.SelectedItems.Clear();
-                hit.Selected = true;
-            }
-            showMenu(e.Location);
+            if (e.Button != MouseButtons.Right || e.RowIndex < 0 || grid.Rows[e.RowIndex].Selected) return;
+            grid.ClearSelection();
+            grid.Rows[e.RowIndex].Selected = true;
         };
-        list.MouseDoubleClick += delegate(object sender, MouseEventArgs e) { showMenu(e.Location); };
-        list.KeyDown += delegate(object sender, KeyEventArgs e)
+        grid.MouseUp += delegate(object sender, MouseEventArgs e) { if (e.Button == MouseButtons.Right) showMenu(e.Location); };
+        grid.KeyDown += delegate(object sender, KeyEventArgs e)
         {
-            if (list.SelectedItems.Count == 0) return;
+            if (grid.SelectedRows.Count == 0) return;
             if (e.KeyCode == Keys.Apps || (e.KeyCode == Keys.F10 && e.Shift))
             {
-                Rectangle r = list.SelectedItems[0].Bounds;
+                Rectangle r = grid.GetRowDisplayRectangle(grid.SelectedRows[0].Index, false);
                 showMenu(new Point(r.Left + 20, r.Bottom));
                 e.Handled = true;
             }
@@ -165,8 +230,8 @@ partial class AutoLangSwitcherContext
         appsHint.AutoSize = true;
         appsHint.ForeColor = SystemColors.GrayText;
         appsHint.Margin = new Padding(12, 8, 3, 3);
-        appsHint.Text = "Right-click a program to lock its language, set the one it opens in,\nturn smart switch off or on, or forget it.";
-        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(removeAll));
+        appsHint.Text = "Click a Start in or Locked to cell to choose a language. Right-click to forget a program,\nor to change several selected programs at once.";
+        TabPage appsTab = MakeTab("Apps", grid, MakeButtonBar(removeAll));
         appsTab.Controls[1].Controls.Add(appsHint);   // the hint sits next to the button
 
         // ---- General
@@ -408,8 +473,9 @@ partial class AutoLangSwitcherContext
         {
             form.MinimumSize = new Size((int)(form.MinimumSize.Width * scale), (int)(form.MinimumSize.Height * scale));
             form.Scale(new SizeF(scale, scale));
-            foreach (ColumnHeader c in list.Columns) c.Width = (int)(c.Width * scale);
+            foreach (DataGridViewColumn c in grid.Columns) c.Width = (int)(c.Width * scale);
         }
+        form.Shown += delegate { grid.CurrentCell = null; grid.ClearSelection(); };   // the grid selects a row when first shown
         form.Show();
         form.Activate();
     }
@@ -463,8 +529,9 @@ For example: Hebrew in WhatsApp, English in your code editor.</p>
 {IMG:apps}
 <table>
 <tr><td class='k'>Apps</td><td>The programs it remembers and their languages (point at a name to see its file name).
-<b>Right-click</b> a program (or double-click it) to lock its language or choose the one it opens in (below), turn Smart Keyboard
-Auto Switch off or on there, or forget it. Select several with <kbd>Ctrl</kbd>+click to change them together.</td></tr>
+Click a <b>Start in</b> or <b>Locked to</b> cell to choose a language (below), and tick or untick <b>Smart switch</b> to turn
+Smart Keyboard Auto Switch on or off there. <b>Right-click</b> a program to forget it, or select several (<kbd>Ctrl</kbd>+click)
+and right-click to change them together.</td></tr>
 <tr><td class='k'>General</td><td>Pause, start with Windows, check for updates, Smart Keyboard Auto Switch, and whether it runs as administrator.</td></tr>
 <tr><td class='k'>Smart switch off</td><td>The programs where Smart Keyboard Auto Switch stays off, one exe name per line.</td></tr>
 <tr><td class='k'>Settings file</td><td>The saved list, as stored on disk.</td></tr>
@@ -474,8 +541,8 @@ Auto Switch off or on there, or forget it. Select several with <kbd>Ctrl</kbd>+c
 </table>
 
 <h2>Language rules: lock, or start in a language</h2>
-<p>Normally the last language you used in a program wins. To give a program a fixed language instead, right-click it on the
-<b>Apps</b> tab and choose:</p>
+<p>Normally the last language you used in a program wins. To give a program a fixed language instead, choose one in its
+<b>Start in</b> or <b>Locked to</b> column on the <b>Apps</b> tab:</p>
 <table>
 <tr><td class='k'>Lock to</td><td>The program gets this language <b>every time</b> it comes to the front. You can still switch while you're in it,
 but that switch isn't remembered: leave and come back, and it's back to the locked language.
@@ -486,8 +553,7 @@ remembered as usual. <span class='ex'>Example: WhatsApp always opens in Hebrew, 
 it gets the locked one. <span class='ex'>Example: Outlook opens in Hebrew, and is English each time you return to it.</span></td></tr>
 </table>
 {IMG:rules}
-<p>Each menu has a tick next to the current choice; <b>No lock</b> or <b>No start language</b> at the bottom removes that rule.
-The <b>Rule</b> column on the Apps tab shows each program's rules. A program already running when AutoLangSwitcher starts
+<p>Choose <b>None</b> to remove a rule. A program already running when AutoLangSwitcher starts
 gets its start language the first time you switch to it.</p>
 
 <h2>Smart Keyboard Auto Switch</h2>
@@ -520,7 +586,7 @@ by the words around them: <span class='ex'><code>do akuo</code> becomes <span cl
 <li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into Windows,
 plus letter statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
 <li>It stays off in code editors and terminals (VS Code, Visual Studio, JetBrains IDEs, Windows Terminal, PowerShell, cmd and others),
-where keys can be commands and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by right-clicking a program on the <b>Apps</b> tab.</li>
+where keys can be commands and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by unticking <b>Smart switch</b> on the <b>Apps</b> tab.</li>
 </ul>
 {IMG:off}
 <div class='note'><b>Privacy:</b> to do this it has to read your typing. The letters of the current word stay in memory only until you finish it:

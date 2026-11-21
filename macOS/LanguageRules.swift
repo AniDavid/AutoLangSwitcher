@@ -94,6 +94,38 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(forget)
     }
 
+    // The Start in / Locked to popup in the Apps table: None, then the enabled input sources.
+    func rulePopup(app: String, lock: Bool, row: Int) -> NSPopUpButton {
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.controlSize = .small
+        popup.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        popup.isBordered = false
+        popup.addItem(withTitle: "None")
+        let current = lock ? locks[app] : starts[app]
+        var ids = SmartSwitch.keyboardLayouts().map { $0.id }
+        if let c = current, !ids.contains(c) { ids.append(c) }   // an input source that isn't enabled any more
+        for id in ids {
+            popup.addItem(withTitle: InputSources.name(id))
+            popup.lastItem?.representedObject = id
+            if id == current { popup.select(popup.lastItem) }
+        }
+        popup.tag = row
+        popup.identifier = NSUserInterfaceItemIdentifier(lock ? "lock" : "start")
+        popup.target = self
+        popup.action = #selector(rulePopupChanged(_:))
+        return popup
+    }
+
+    @objc func rulePopupChanged(_ popup: NSPopUpButton) {
+        guard popup.tag < appRows.count else { return }
+        setRule([appRows[popup.tag].app], lock: popup.identifier?.rawValue == "lock", popup.selectedItem?.representedObject as? String)
+    }
+
+    @objc func smartBoxClicked(_ box: NSButton) {
+        guard box.tag < appRows.count else { return }
+        smart.setAppsOff([appRows[box.tag].app], box.state == .off)
+    }
+
     func selectedApps() -> [String] {
         guard let table = appsTable else { return [] }
         return table.selectedRowIndexes.filter { $0 < appRows.count }.map { appRows[$0].app }

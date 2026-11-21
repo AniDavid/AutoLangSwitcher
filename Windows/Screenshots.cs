@@ -73,19 +73,20 @@ partial class AutoLangSwitcherContext
         form.TopMost = true;
         form.Activate();
 
-        // The right-click menu, open on WhatsApp with Start in > Hebrew highlighted.
+        // The Start in dropdown, open on Microsoft Word.
         tabs.SelectedIndex = 0;
-        ListView list = (ListView)tabs.TabPages[0].Controls[0];
-        foreach (ListViewItem item in list.Items) item.Selected = (string)item.Tag == "WhatsApp.exe";
-        ContextMenuStrip ruleMenu = AppMenu(new List<string> { "WhatsApp.exe" }, delegate { });
-        ruleMenu.Show(list, new Point(90, 60));   // over the list, so the menus stay inside the window
-        ToolStripMenuItem start = (ToolStripMenuItem)ruleMenu.Items[1];
-        start.Select();
-        start.ShowDropDown();
-        foreach (ToolStripItem lang in start.DropDownItems) if (lang.Text.StartsWith("Hebrew")) lang.Select();
+        DataGridView grid = (DataGridView)tabs.TabPages[0].Controls[0];
+        foreach (DataGridViewRow row in grid.Rows)
+            if ((string)row.Tag == "WINWORD.EXE")
+            {
+                grid.CurrentCell = row.Cells[2];
+                grid.BeginEdit(true);
+                ((ComboBox)grid.EditingControl).DroppedDown = true;
+            }
         Rectangle window = form.RectangleToScreen(form.ClientRectangle);
         SaveScreen(window, Path.Combine(dir, "help-rules.png"));
-        ruleMenu.Close();
+        grid.CancelEdit();
+        grid.EndEdit();
 
         // The tray menu (without "Restart as administrator", which only shows when not running as administrator).
         ContextMenuStrip trayMenu = MakeTrayMenu(false);

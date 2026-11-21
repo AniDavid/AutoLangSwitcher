@@ -97,16 +97,25 @@ partial class AutoLangSwitcherContext
     {
         LangRule r;
         if (!rules.TryGetValue(exe, out r)) return "";
-        string start = r.Start == IntPtr.Zero ? null : ShortName(r.Start);
-        string locked = r.Lock == IntPtr.Zero ? null : ShortName(r.Lock);
+        string start = r.Start == IntPtr.Zero ? null : LayoutLabel(r.Start);
+        string locked = r.Lock == IntPtr.Zero ? null : LayoutLabel(r.Lock);
         if (start != null && locked != null) return "Starts in " + start + ", then locked: " + locked;
         return start != null ? "Starts in: " + start : "Locked: " + locked;
     }
 
-    // "English (United States)" -> "English", to fit the Rule column.
-    static string ShortName(IntPtr hkl)
+    const string NoRule = "None";   // the Start in and Locked to dropdowns: no rule
+
+    // "English (United States)" -> "English", unless another installed keyboard is also English.
+    static string LayoutLabel(IntPtr hkl)
     {
-        string name = Win32.LayoutName(hkl);
+        string name = Win32.LayoutName(hkl), shortName = ShortName(name);
+        foreach (IntPtr other in Win32.Layouts())
+            if (other != hkl && ShortName(Win32.LayoutName(other)) == shortName) return name;
+        return shortName;
+    }
+
+    static string ShortName(string name)
+    {
         int paren = name.IndexOf(" (");
         return paren > 0 ? name.Substring(0, paren) : name;
     }
