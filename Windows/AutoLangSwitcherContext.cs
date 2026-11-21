@@ -35,7 +35,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
     readonly Timer pollTimer = new Timer();
     readonly Timer saveTimer = new Timer();
     readonly NotifyIcon tray = new NotifyIcon();
-    readonly ToolStripMenuItem pauseItem;
+    ToolStripMenuItem pauseItem;
     readonly uint ownPid = (uint)Process.GetCurrentProcess().Id;
 
     IntPtr curHwnd = IntPtr.Zero;
@@ -60,26 +60,8 @@ partial class AutoLangSwitcherContext : ApplicationContext
             Log("move startup to scheduled task: exit code " + Startup.Enable());
 
         // Tray icon and menu
-        pauseItem = new ToolStripMenuItem("Pause", null, delegate { SetPaused(!paused); });
-
-        ContextMenuStrip menu = new ContextMenuStrip();
-        if (!Elevation.IsElevated)
-        {
-            menu.Items.Add(new ToolStripMenuItem("Restart as administrator", null, delegate { RestartAsAdmin(); }));
-            menu.Items.Add(new ToolStripSeparator());
-        }
-        ToolStripMenuItem settingsItem = new ToolStripMenuItem("Settings...", null, delegate { ShowSettings(); });
-        settingsItem.Font = new Font(settingsItem.Font, FontStyle.Bold);   // default action, same as double-click
-        menu.Items.Add(settingsItem);
-        menu.Items.Add(pauseItem);
-        menu.Items.Add(new ToolStripSeparator());
-        updateItem = new ToolStripMenuItem("Check for updates...", null, delegate { UpdateMenuClicked(); });
-        menu.Items.Add(updateItem);
-        menu.Items.Add(new ToolStripMenuItem("About " + Title, null, delegate { ShowAbout(); }));
-        menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { ExitThread(); }));
-
         tray.Icon = normalIcon;
-        tray.ContextMenuStrip = menu;
+        tray.ContextMenuStrip = MakeTrayMenu(!Elevation.IsElevated);
         tray.DoubleClick += delegate { ShowSettings(); };
         tray.Visible = true;
         UpdateTooltip();
@@ -103,6 +85,28 @@ partial class AutoLangSwitcherContext : ApplicationContext
         OnForeground(Win32.GetForegroundWindow());
         LoadSmartSettings();
         StartUpdateChecks();
+    }
+
+    ContextMenuStrip MakeTrayMenu(bool restartItem)
+    {
+        ContextMenuStrip menu = new ContextMenuStrip();
+        if (restartItem)
+        {
+            menu.Items.Add(new ToolStripMenuItem("Restart as administrator", null, delegate { RestartAsAdmin(); }));
+            menu.Items.Add(new ToolStripSeparator());
+        }
+        ToolStripMenuItem settingsItem = new ToolStripMenuItem("Settings...", null, delegate { ShowSettings(); });
+        settingsItem.Font = new Font(settingsItem.Font, FontStyle.Bold);   // default action, same as double-click
+        menu.Items.Add(settingsItem);
+        menu.Items.Add(new ToolStripMenuItem("Help", null, delegate { ShowHelp(); }));
+        pauseItem = new ToolStripMenuItem("Pause", null, delegate { SetPaused(!paused); });
+        menu.Items.Add(pauseItem);
+        menu.Items.Add(new ToolStripSeparator());
+        updateItem = new ToolStripMenuItem("Check for updates...", null, delegate { UpdateMenuClicked(); });
+        menu.Items.Add(updateItem);
+        menu.Items.Add(new ToolStripMenuItem("About " + Title, null, delegate { ShowAbout(); }));
+        menu.Items.Add(new ToolStripMenuItem("Exit", null, delegate { ExitThread(); }));
+        return menu;
     }
 
     protected override void ExitThreadCore()

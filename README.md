@@ -61,6 +61,7 @@ Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .N
 | Item | What it does |
 |---|---|
 | **Settings...** | Opens the Settings window (double-clicking the icon does the same). |
+| **Help** | Opens the Settings window on the **Help** tab: a user manual with pictures. |
 | **Pause** | Temporarily stops switching languages. |
 | **Check for updates...** | Asks GitHub for the latest version and offers the download page if there's a newer one. It also checks once a day by itself (untick **Check for updates once a day** on the **General** tab to stop that). |
 | **About AutoLangSwitcher** | Shows the version and credits. |
@@ -124,6 +125,7 @@ No special permissions are needed, unless you turn on **Smart Keyboard Auto Swit
 | Item | What it does |
 |---|---|
 | **Settings…** | Opens the Settings window. |
+| **Help** | Opens the Settings window on the **Help** tab. |
 | **Pause** | Temporarily stops switching. |
 | **About AutoLangSwitcher** | Shows the version and credits. |
 | **Quit AutoLangSwitcher** | Closes it. |

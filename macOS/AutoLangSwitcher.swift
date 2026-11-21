@@ -331,6 +331,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        let help = NSMenuItem(title: "Help", action: #selector(showHelp), keyEquivalent: "")
+        help.target = self
+        menu.addItem(help)
 
         pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
         pauseItem.target = self
@@ -449,6 +452,13 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         refreshSelectedTab()
         NSApp.activate(ignoringOtherApps: true)   // menu bar apps are in the background
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    // Menu bar menu > Help: the Settings window, on the Help tab.
+    @objc func showHelp() {
+        if settingsWindow == nil { buildSettingsWindow() }
+        settingsTabs?.selectTabViewItem(withIdentifier: "Help")
+        showSettings()
     }
 
     func buildSettingsWindow() {
@@ -837,7 +847,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     // (made with --screenshots, copied in by build.sh), or nothing if it isn't there.
     static func helpPage(fixKey: String) -> NSAttributedString? {
         var html = helpHTML.replacingOccurrences(of: "{FIXKEY}", with: fixKey)
-        for name in shotNames {
+        for name in pictureNames {
             let img = Bundle.main.url(forResource: "help-\(name)", withExtension: "png") != nil
                 ? "<p><img src='help-\(name).png'></p>" : ""
             html = html.replacingOccurrences(of: "{IMG:\(name)}", with: img)
@@ -861,6 +871,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     }
 
     static let shotNames = ["apps", "general", "off"]   // the first three tabs, in order
+    static let pictureNames = shotNames + ["rules"]     // rules: the Apps tab with an app selected
 
     // AutoLangSwitcher --screenshots <folder>: saves the first three Settings tabs as help-<name>.png,
     // using example apps (not yours). Nothing is loaded or saved.
@@ -884,6 +895,17 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("help-\(name).png"))
+        }
+        // The Apps tab with WhatsApp selected, so Language rule… and the other buttons are enabled.
+        tabs.selectTabViewItem(at: 0)
+        refreshSelectedTab()
+        if let row = appRows.firstIndex(where: { $0.app == "WhatsApp" }) {
+            appsTable?.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        view.layoutSubtreeIfNeeded()
+        if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("help-rules.png"))
         }
         // The Help tab itself, to check how the page looks (not used in the page).
         guard let help = Self.helpPage(fixKey: "Control+Option+Z") else { print("the Help page could not be read"); exit(2) }
@@ -928,6 +950,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         </ul>
         <p class='note'>It remembers by <b>app</b>, not by window or tab: all browser tabs share one input source.</p>
 
+        <h2>The menu bar menu</h2>
+        <p>Click the keyboard icon in the menu bar: <b>Settings…</b> opens this window, <b>Help</b> opens it on this page, and
+        <b>Pause</b> stops switching for a while.</p>
+
         <h2>The tabs</h2>
         {IMG:apps}
         <ul>
@@ -951,6 +977,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         remembered as usual. Example: WhatsApp always opens in Hebrew.</li>
         <li><b>No rule:</b> back to normal, the last input source you used.</li>
         </ul>
+        {IMG:rules}
         <p>The <b>Rule</b> column on the Apps tab shows each app's rule.</p>
 
         <h2>Smart Keyboard Auto Switch</h2>

@@ -12,6 +12,36 @@ using System.Windows.Forms;
 partial class AutoLangSwitcherContext
 {
     Form settingsForm;
+    TabControl settingsTabs;
+
+    // Tray menu > Help: the Settings window, on the Help tab.
+    void ShowHelp()
+    {
+        ShowSettings();
+        foreach (TabPage page in settingsTabs.TabPages)
+            if (page.Text == "Help") settingsTabs.SelectedTab = page;
+    }
+
+    // Apps tab > Language rule...: Lock to > language, Start in > language, No rule; for these programs.
+    ContextMenuStrip RuleMenu(List<string> exes, Action done)
+    {
+        ContextMenuStrip menu = new ContextMenuStrip();
+        foreach (bool lockIt in new bool[] { true, false })
+        {
+            ToolStripMenuItem sub = new ToolStripMenuItem(lockIt ? "Lock to (always this language)" : "Start in (this language when opened)");
+            foreach (IntPtr hkl in Win32.Layouts())
+            {
+                LangRule r = new LangRule();
+                r.Lock = lockIt;
+                r.Hkl = hkl;
+                sub.DropDownItems.Add(Win32.LayoutName(hkl), null, delegate { SetRule(exes, r); done(); });
+            }
+            menu.Items.Add(sub);
+        }
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("No rule (remember the last language)", null, delegate { SetRule(exes, null); done(); });
+        return menu;
+    }
     CheckBox pauseBox;   // kept in sync with the tray's Pause item by SetPaused
 
     void ShowSettings()
@@ -87,22 +117,7 @@ partial class AutoLangSwitcherContext
         {
             List<string> exes = new List<string>();
             foreach (ListViewItem item in list.SelectedItems) exes.Add(item.Text);
-            ContextMenuStrip menu = new ContextMenuStrip();
-            foreach (bool lockIt in new bool[] { true, false })
-            {
-                ToolStripMenuItem sub = new ToolStripMenuItem(lockIt ? "Lock to (always this language)" : "Start in (this language when opened)");
-                foreach (IntPtr hkl in Win32.Layouts())
-                {
-                    LangRule r = new LangRule();
-                    r.Lock = lockIt;
-                    r.Hkl = hkl;
-                    sub.DropDownItems.Add(Win32.LayoutName(hkl), null, delegate { SetRule(exes, r); fillApps(); });
-                }
-                menu.Items.Add(sub);
-            }
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("No rule (remember the last language)", null, delegate { SetRule(exes, null); fillApps(); });
-            menu.Show(ruleButton, new Point(0, ruleButton.Height));
+            RuleMenu(exes, fillApps).Show(ruleButton, new Point(0, ruleButton.Height));
         };
         removeAll.Click += delegate { ForgetAll(); fillApps(); };
         // Select programs (Ctrl+click or Shift+click for several) to add them to, or take them off,
@@ -348,8 +363,9 @@ partial class AutoLangSwitcherContext
         fillApps();
 
         form.Controls.Add(tabs);
-        form.FormClosed += delegate { settingsForm = null; pauseBox = null; };
+        form.FormClosed += delegate { settingsForm = null; settingsTabs = null; pauseBox = null; };
         settingsForm = form;
+        settingsTabs = tabs;
         form.Show();
         form.Activate();
     }
@@ -394,6 +410,11 @@ For example: Hebrew in WhatsApp, English in your code editor.</p>
 </ul>
 <div class='note'>It remembers by <b>program</b>, not by window or tab: all browser tabs share one language.</div>
 
+<h2>The tray menu</h2>
+{IMG:tray}
+<p>Right-click the keyboard icon in the tray (next to the clock): <b>Settings...</b> opens this window (double-clicking the icon does too),
+<b>Help</b> opens it on this page, <b>Pause</b> stops switching for a while, and <b>Check for updates...</b> looks for a newer version.</p>
+
 <h2>The tabs</h2>
 {IMG:apps}
 <table>
@@ -419,6 +440,7 @@ but that switch isn't remembered: leave and come back, and it's back to the lock
 remembered as usual. <span class='ex'>Example: WhatsApp always opens in Hebrew, even if you last used it in English.</span></td></tr>
 <tr><td class='k'>No rule</td><td>Back to normal: the last language you used.</td></tr>
 </table>
+{IMG:rules}
 <p>The <b>Rule</b> column on the Apps tab shows each program's rule. A program already running when AutoLangSwitcher starts
 gets its start language the first time you switch to it.</p>
 
