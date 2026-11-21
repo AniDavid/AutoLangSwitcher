@@ -9,30 +9,56 @@ using System.Text;
 //   Lock to X:  the program gets X every time it comes to the front. Switching inside it is allowed but never remembered.
 //   Start in X: the program gets X when it is opened (after being closed); while it runs, switches are remembered as usual.
 // Saved in language-rules.txt, one "program.exe = lock|start layout-id ; language" per line.
-partial class AutoLangSwitcherContext
-{
-    static readonly string RulesFile = Path.Combine(DataDir, "language-rules.txt");
 
-    class LangRule
+class LangRule
+{
+    public bool Lock;    // false: start in
+    public IntPtr Hkl;
+}
+
+// What each program's language should be: the remembered layouts, the rules, and which process was last seen per
+// program. No windows or Windows calls here, so the self-test can play whole sequences through it.
+class LanguageMemory
+{
+    // exe -> layout. Sorted so the settings file and the menu list apps alphabetically.
+    public readonly SortedDictionary<string, IntPtr> Map = new SortedDictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
+    public readonly Dictionary<string, LangRule> Rules = new Dictionary<string, LangRule>(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, uint> lastPid = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+    public Func<uint, bool> IsRunning = ProcessIsRunning;   // replaced in the self-test
+
+    // A program came to the front (pid: its process). Returns the layout it should get, or IntPtr.Zero for none;
+    // why is " (locked)" or " (start language)" when a rule decided it, for the log.
+    public IntPtr Focus(string exe, uint pid, out string why)
     {
-        public bool Lock;    // false: start in
-        public IntPtr Hkl;
+        IntPtr remembered;
+        Map.TryGetValue(exe, out remembered);
+        LangRule rule;
+        Rules.TryGetValue(exe, out rule);
+        IntPtr wanted = Wanted(rule, JustLaunched(exe, pid), remembered);
+        why = rule == null || (wanted == remembered && !rule.Lock) ? "" : rule.Lock ? " (locked)" : " (start language)";
+        return wanted;
     }
 
-    readonly Dictionary<string, LangRule> rules = new Dictionary<string, LangRule>(StringComparer.OrdinalIgnoreCase);
-    readonly Dictionary<string, uint> lastPid = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+    // The language in use in a program. Returns false if nothing changed: same as remembered, or the program is locked
+    // (a switch inside a locked program is never remembered). old is the layout it had, or IntPtr.Zero if new.
+    public bool Record(string exe, IntPtr hkl, out IntPtr old)
+    {
+        bool known = Map.TryGetValue(exe, out old);
+        if (IsLocked(exe) || (known && old == hkl)) return false;
+        Map[exe] = hkl;
+        return true;
+    }
 
-    // The layout a program should get when it comes to the front; IntPtr.Zero for none.
-    static IntPtr Wanted(LangRule rule, bool launched, IntPtr remembered)
+    public bool IsLocked(string exe)
+    {
+        LangRule r;
+        return exe != null && Rules.TryGetValue(exe, out r) && r.Lock;
+    }
+
+    public static IntPtr Wanted(LangRule rule, bool launched, IntPtr remembered)
     {
         if (rule != null && (rule.Lock || launched)) return rule.Hkl;
         return remembered;
-    }
-
-    bool IsLocked(string exe)
-    {
-        LangRule r;
-        return exe != null && rules.TryGetValue(exe, out r) && r.Lock;
     }
 
     // Was this program opened since it was last in front? The first time a program is seen counts as opened,
@@ -46,7 +72,7 @@ partial class AutoLangSwitcherContext
         return last != pid && !IsRunning(last);   // another window of a copy still running isn't a new start
     }
 
-    static bool IsRunning(uint pid)
+    static bool ProcessIsRunning(uint pid)
     {
         Process p;
         try { p = Process.GetProcessById((int)pid); }
@@ -55,6 +81,15 @@ partial class AutoLangSwitcherContext
         catch { return true; }   // no access (runs as administrator): it exists
         finally { p.Dispose(); }
     }
+}
+
+partial class AutoLangSwitcherContext
+{
+    static readonly string RulesFile = Path.Combine(DataDir, "language-rules.txt");
+
+    readonly LanguageMemory memory = new LanguageMemory();
+    SortedDictionary<string, IntPtr> map { get { return memory.Map; } }
+    Dictionary<string, LangRule> rules { get { return memory.Rules; } }
 
     string RuleText(string exe)
     {
@@ -131,16 +166,54 @@ partial class AutoLangSwitcherContext
     static void RuleSelfTest(Action<bool, string> check)
     {
         IntPtr en = new IntPtr(0x04090409), he = new IntPtr(0x040D040D);
-        LangRule lockHe = new LangRule(), startHe = new LangRule();
-        lockHe.Lock = true;
-        lockHe.Hkl = startHe.Hkl = he;
-        check(Wanted(lockHe, false, en) == he, "a locked program gets its language even when another is remembered");
-        check(Wanted(startHe, true, en) == he, "a 'start in' program gets its language when opened");
-        check(Wanted(startHe, false, en) == en, "a 'start in' program keeps the remembered language while it runs");
-        check(Wanted(null, true, en) == en && Wanted(null, false, IntPtr.Zero) == IntPtr.Zero, "no rule: the remembered language, as before");
+        LangRule lockEn = new LangRule(), startHe = new LangRule();
+        lockEn.Lock = true;
+        lockEn.Hkl = en;
+        startHe.Hkl = he;
+
+        check(LanguageMemory.Wanted(lockEn, false, he) == en, "a locked program gets its language even when another is remembered");
+        check(LanguageMemory.Wanted(startHe, false, en) == en, "a 'start in' program keeps the remembered language while it runs");
+        check(LanguageMemory.Wanted(null, true, en) == en, "no rule: the remembered language, as before");
+
+        // Whole sequences, with made-up processes: running holds the process ids that are still open.
+        HashSet<uint> running = new HashSet<uint>();
+        LanguageMemory m = new LanguageMemory();
+        m.IsRunning = delegate(uint pid) { return running.Contains(pid); };
+        string why;
+        IntPtr old;
+
+        // No rule: a new program isn't switched; what it uses is remembered and comes back.
+        running.Add(10);
+        check(m.Focus("notepad.exe", 10, out why) == IntPtr.Zero, "sequence: a new program without a rule isn't switched");
+        check(m.Record("notepad.exe", he, out old) && old == IntPtr.Zero, "sequence: its language is remembered");
+        check(m.Focus("notepad.exe", 10, out why) == he && why == "", "sequence: and comes back when it returns to the front");
+        check(!m.Record("notepad.exe", he, out old), "sequence: the same language again is not a change");
+
+        // Lock: a switch inside is not remembered, and the locked language comes back.
+        m.Map["code.exe"] = he;
+        m.Rules["code.exe"] = lockEn;
+        running.Add(20);
+        check(m.Focus("code.exe", 20, out why) == en && why == " (locked)", "sequence: a locked program gets its language");
+        check(!m.Record("code.exe", he, out old), "sequence: a switch inside a locked program is not remembered");
+        check(m.Focus("code.exe", 20, out why) == en, "sequence: back in front, the locked language again");
+        check(m.Map["code.exe"] == he, "sequence: the remembered language of a locked program is left as it was");
+
+        // Start in: opened -> start language; switches while running are remembered; reopened -> start language again.
+        m.Rules["whatsapp.exe"] = startHe;
+        running.Add(30);
+        check(m.Focus("whatsapp.exe", 30, out why) == he && why == " (start language)", "sequence: a 'start in' program opens in its language");
+        check(m.Record("whatsapp.exe", en, out old), "sequence: a switch while it runs is remembered");
+        check(m.Focus("whatsapp.exe", 30, out why) == en && why == "", "sequence: back in front while still running, the remembered language");
+        running.Add(31);
+        check(m.Focus("whatsapp.exe", 31, out why) == en, "sequence: a second window of a copy still running keeps the remembered language");
+        running.Remove(30);
+        running.Remove(31);
+        running.Add(32);
+        check(m.Focus("whatsapp.exe", 32, out why) == he, "sequence: closed and opened again, the start language");
+
         string exe;
         LangRule back;
-        check(ParseRule(RuleLine("WhatsApp.exe", lockHe), out exe, out back) && exe == "WhatsApp.exe" && back.Lock && back.Hkl == he,
+        check(ParseRule(RuleLine("WhatsApp.exe", lockEn), out exe, out back) && exe == "WhatsApp.exe" && back.Lock && back.Hkl == en,
             "a rule line is read back as written");
         check(!ParseRule("x.exe = sometimes 409", out exe, out back), "a rule line with an unknown word is ignored");
     }

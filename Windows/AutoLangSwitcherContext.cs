@@ -28,8 +28,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
     };
 
     // ---------------------------------------------------------------- State
-    // exe -> layout. Sorted so the settings file and the menu list apps alphabetically.
-    readonly SortedDictionary<string, IntPtr> map = new SortedDictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
+    // map (exe -> layout) and rules live in LanguageMemory (LanguageRules.cs).
     readonly List<string> logLines = new List<string>();
     readonly Win32.WinEventDelegate hookProc;   // kept in a field so the GC does not collect it
     readonly IntPtr hook;
@@ -154,17 +153,13 @@ partial class AutoLangSwitcherContext : ApplicationContext
         failedLayout = IntPtr.Zero;
         if (exe == null || paused) return;
 
-        IntPtr remembered;
-        map.TryGetValue(exe, out remembered);
-        LangRule rule;
-        rules.TryGetValue(exe, out rule);
-        IntPtr wanted = Wanted(rule, JustLaunched(exe, pid), remembered);
+        string why;
+        IntPtr wanted = memory.Focus(exe, pid, out why);
         if (wanted == IntPtr.Zero)
         {
             Log("focus " + exe + ": not remembered yet");
             return;
         }
-        string why = rule == null || wanted == remembered && !rule.Lock ? "" : rule.Lock ? " (locked)" : " (start language)";
         if (!Win32.IsInstalled(wanted))
         {
             Log("focus " + exe + ": saved layout " + Win32.LayoutName(wanted) + " is not installed, skipping");
@@ -218,11 +213,10 @@ partial class AutoLangSwitcherContext : ApplicationContext
 
     void Record(string exe, IntPtr hkl)
     {
-        if (exe == null || hkl == IntPtr.Zero || hkl == failedLayout || IsLocked(exe)) return;   // locked: never remembered
+        if (exe == null || hkl == IntPtr.Zero || hkl == failedLayout) return;
         IntPtr old;
-        bool known = map.TryGetValue(exe, out old);
-        if (known && old == hkl) return;
-        map[exe] = hkl;
+        if (!memory.Record(exe, hkl, out old)) return;   // unchanged, or locked
+        bool known = old != IntPtr.Zero;
         dirty = true;
         // Automatic switches set the remembered layout, so any other change came from the user.
         Log((known ? "manual switch " + exe + ": " + Win32.LayoutName(old) + " -> " : "remember new app " + exe + ": ") +

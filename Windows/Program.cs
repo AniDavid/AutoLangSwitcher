@@ -33,6 +33,11 @@ static class Program
         // Checks Smart Keyboard Auto Switch; run with the output piped, e.g. AutoLangSwitcher.exe --selftest | more
         if (HasArg(args, "--selftest"))
         {
+            // --load-layouts: load the English and Hebrew keyboards for this session first, so the typing tests
+            // run on a PC without them (the GitHub build machine). Not for normal use.
+            if (HasArg(args, "--load-layouts"))
+                foreach (string klid in new string[] { "00000409", "0000040D" })
+                    Win32.LoadKeyboardLayout(klid, 0x80);   // KLF_NOTELLSHELL
             Environment.Exit(AutoLangSwitcherContext.SmartSelfTest(Console.Out));
             return;
         }

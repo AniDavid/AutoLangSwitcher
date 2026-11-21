@@ -1,0 +1,34 @@
+# Compiles the Windows app the way build.bat does (the C# compiler that ships with Windows) and runs its self-test.
+# It checks the word checks, key conversion, update check and language rules; it doesn't test the rest of the app.
+name: Windows build
+
+on:
+  push:
+    paths: ["Windows/**", ".github/workflows/windows-build.yml"]
+  pull_request:
+    paths: ["Windows/**"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile (as build.bat)
+        working-directory: Windows
+        shell: cmd
+        run: |
+          "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:AutoLangSwitcher.exe ^
+            /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+            /resource:Help\help-apps.png,help-apps.png /resource:Help\help-general.png,help-general.png ^
+            /resource:Help\help-off.png,help-off.png ^
+            *.cs
+      - name: Self-test
+        working-directory: Windows
+        shell: pwsh
+        # The exe is a windowed app, so wait for it and read its output from a file.
+        run: |
+          $p = Start-Process .\AutoLangSwitcher.exe -ArgumentList '--selftest', '--load-layouts' -Wait -PassThru -NoNewWindow -RedirectStandardOutput selftest.txt
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { Write-Error "$($p.ExitCode) check(s) failed"; exit 1 }
+      - name: Build the .NET 10 version
+        run: dotnet build Windows/AutoLangSwitcher.csproj -c Release -f net10.0-windows
