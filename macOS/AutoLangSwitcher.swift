@@ -560,9 +560,9 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func appsTab() -> NSView {
         let table = NSTableView()
-        for (id, title, width) in [("app", "Program", CGFloat(140)), ("source", "Input source", CGFloat(95)),
-                                   ("start", "Start in", CGFloat(125)), ("lock", "Locked to", CGFloat(125)),
-                                   ("smart", "Smart switch", CGFloat(80))] {
+        for (id, title, width) in [("app", "Program", CGFloat(130)), ("source", "Input source", CGFloat(90)),
+                                   ("start", "Start in", CGFloat(120)), ("lock", "Locked to", CGFloat(120)),
+                                   ("smart", "Smart switch", CGFloat(95))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             col.width = width
@@ -624,7 +624,14 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         if isApp { field.toolTip = r.app }
-        return field
+        // Centred in the row, like the popups next to it.
+        let cell = NSView()
+        field.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(field)
+        NSLayoutConstraint.activate([field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                                     field.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor),
+                                     field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+        return cell
     }
 
     @objc func smartOffForSelected() { setSelectedAppsOff(true) }
