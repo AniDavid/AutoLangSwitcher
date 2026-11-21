@@ -136,7 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let defaultsKey = "layouts"
     var map: [String: String] = [:]      // app bundle id -> input source id
-    var rules: [String: String] = [:]    // app bundle id -> "lock:<source>" or "start:<source>" (LanguageRules.swift)
+    var locks: [String: String] = [:]    // app bundle id -> input source it is locked to (LanguageRules.swift)
+    var starts: [String: String] = [:]   // app bundle id -> input source it starts in
     var launched = Set<String>()         // apps opened that haven't come to the front yet
     var currentApp: String?
     var paused = false
@@ -235,12 +236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let cur = InputSources.currentID()
         let justLaunched = launched.remove(id) != nil
-        guard let wanted = Self.wanted(rule: rules[id], launched: justLaunched, remembered: map[id]) else {
+        guard let wanted = Self.wanted(lock: locks[id], start: starts[id], launched: justLaunched, remembered: map[id]) else {
             if let cur = cur { record(id, cur) }   // first time we see this app: remember what it starts with
             return
         }
-        let ruled = Self.parseRule(rules[id])
-        let why = ruled == nil || wanted == map[id] && ruled?.lock == false ? "" : ruled?.lock == true ? " (locked)" : " (start input source)"
+        let why = justLaunched && starts[id] == wanted ? " (start input source)" : locks[id] == wanted ? " (locked)" : ""
         if InputSources.find(wanted) == nil {
             log("focus \(id): saved input source \(InputSources.name(wanted)) is not enabled, skipping")
             return
@@ -595,7 +595,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func fillApps() {
         // Remembered apps, plus locked ones that never got a remembered input source.
-        appRows = Set(map.keys).union(rules.keys).map { (app: $0, source: map[$0] ?? "") }
+        appRows = Set(map.keys).union(locks.keys).union(starts.keys).map { (app: $0, source: map[$0] ?? "") }
             .sorted { displayName($0.app).lowercased() < displayName($1.app).lowercased() }
         appsTable?.reloadData()
     }
@@ -629,8 +629,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         guard let table = appsTable else { return }
         let apps = table.selectedRowIndexes.filter { $0 < appRows.count }.map { appRows[$0].app }
         apps.forEach { map.removeValue(forKey: $0) }
-        let ruled = apps.filter { rules[$0] != nil }
-        if !ruled.isEmpty { setRule(ruled, nil) }
+        if apps.contains(where: { locks[$0] != nil }) { setRule(apps, lock: true, nil) }
+        if apps.contains(where: { starts[$0] != nil }) { setRule(apps, lock: false, nil) }
         save()
         fillApps()
     }
@@ -870,7 +870,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     func takeScreenshots(to dir: String) {
         // Names that aren't installed apps or enabled input sources are shown as they are.
         map = ["WhatsApp": "Hebrew", "Microsoft Word": "Hebrew", "Mail": "Hebrew", "Safari": "ABC", "com.apple.Terminal": "ABC"]
-        rules = ["WhatsApp": "start:Hebrew", "com.apple.Terminal": "lock:ABC"]
+        starts = ["WhatsApp": "Hebrew", "Mail": "Hebrew"]
+        locks = ["com.apple.Terminal": "ABC", "Mail": "ABC"]
         smart.offApps = Set(SmartSwitch.defaultOffApps.map { $0.lowercased() })
         smart.on = true   // so the General tab shows its options enabled
         buildSettingsWindow()
@@ -956,9 +957,11 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         but that switch isn't remembered: leave and come back, and it's back to the locked one. Example: lock Terminal to ABC.</li>
         <li><b>Start in:</b> the app gets this input source <b>when it's opened</b> after being quit. While it runs, your switches are
         remembered as usual. Example: WhatsApp always opens in Hebrew.</li>
-        <li><b>No rule:</b> back to normal, the last input source you used.</li>
+        <li><b>Both:</b> an app can have both: it opens in its start input source, and every time you come back to it it gets
+        the locked one.</li>
         </ul>
-        <p>The <b>Rule</b> column on the Apps tab shows each app's rule.</p>
+        <p>Each menu has a tick next to the current choice; <b>No lock</b> or <b>No start input source</b> at the bottom removes
+        that rule. The <b>Rule</b> column on the Apps tab shows each app's rules.</p>
 
         <h2>Smart Keyboard Auto Switch</h2>
         <p class='lead'>Optional, and off unless you turn it on in General.</p>

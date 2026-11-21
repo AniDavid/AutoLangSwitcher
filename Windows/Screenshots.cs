@@ -21,7 +21,10 @@ partial class AutoLangSwitcherContext
     // Only what the Settings window needs: no hooks, timers or tray icon, and nothing is loaded or saved.
     AutoLangSwitcherContext(string dir)
     {
-        IntPtr en = new IntPtr(0x04090409), he = new IntPtr(0x040D040D);
+        // The installed English and Hebrew keyboards, so the menus show ticks; standard ids if one isn't installed.
+        IntPtr en = FindLayout("en"), he = FindLayout("he");
+        if (en == IntPtr.Zero) en = new IntPtr(0x04090409);
+        if (he == IntPtr.Zero) he = new IntPtr(0x040D040D);
         map["WhatsApp.exe"] = he;
         map["WINWORD.EXE"] = he;
         map["OUTLOOK.EXE"] = he;
@@ -34,11 +37,14 @@ partial class AutoLangSwitcherContext
         programNames["Code.exe"] = "Visual Studio Code";
         foreach (string exe in DefaultOffApps) offApps.Add(exe);
         LangRule startHe = new LangRule(), lockEn = new LangRule();
-        startHe.Hkl = he;
-        lockEn.Lock = true;
-        lockEn.Hkl = en;
+        startHe.Start = he;
+        lockEn.Lock = en;
         rules["WhatsApp.exe"] = startHe;
         rules["Code.exe"] = lockEn;
+        LangRule both = new LangRule();
+        both.Start = he;
+        both.Lock = en;
+        rules["OUTLOOK.EXE"] = both;
         smartOn = true;   // so the General tab shows its options enabled
         tray.Icon = normalIcon;
 

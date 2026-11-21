@@ -5,15 +5,16 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-// Language rules, set per program on the Apps tab:
+// Language rules, set per program on the Apps tab; a program can have either or both:
 //   Lock to X:  the program gets X every time it comes to the front. Switching inside it is allowed but never remembered.
-//   Start in X: the program gets X when it is opened (after being closed); while it runs, switches are remembered as usual.
-// Saved in language-rules.txt, one "program.exe = lock|start layout-id ; language" per line.
+//   Start in Y: the program gets Y when it is opened (after being closed). Without a lock, switches while it runs are
+//               remembered as usual; with one, it opens in Y and gets X each time you come back to it.
+// Saved in language-rules.txt, one "program.exe = lock|start layout-id ; language" line per rule.
 
 class LangRule
 {
-    public bool Lock;    // false: start in
-    public IntPtr Hkl;
+    public IntPtr Lock;    // IntPtr.Zero: not set
+    public IntPtr Start;
 }
 
 // What each program's language should be: the remembered layouts, the rules, and which process was last seen per
@@ -35,7 +36,7 @@ class LanguageMemory
         LangRule rule;
         Rules.TryGetValue(exe, out rule);
         IntPtr wanted = Wanted(rule, JustLaunched(exe, pid), remembered);
-        why = rule == null || (wanted == remembered && !rule.Lock) ? "" : rule.Lock ? " (locked)" : " (start language)";
+        why = rule == null || (wanted != rule.Lock && wanted != rule.Start) ? "" : wanted == rule.Start ? " (start language)" : " (locked)";
         return wanted;
     }
 
@@ -52,12 +53,13 @@ class LanguageMemory
     public bool IsLocked(string exe)
     {
         LangRule r;
-        return exe != null && Rules.TryGetValue(exe, out r) && r.Lock;
+        return exe != null && Rules.TryGetValue(exe, out r) && r.Lock != IntPtr.Zero;
     }
 
     public static IntPtr Wanted(LangRule rule, bool launched, IntPtr remembered)
     {
-        if (rule != null && (rule.Lock || launched)) return rule.Hkl;
+        if (rule != null && launched && rule.Start != IntPtr.Zero) return rule.Start;
+        if (rule != null && rule.Lock != IntPtr.Zero) return rule.Lock;
         return remembered;
     }
 
@@ -95,18 +97,40 @@ partial class AutoLangSwitcherContext
     {
         LangRule r;
         if (!rules.TryGetValue(exe, out r)) return "";
-        return (r.Lock ? "Locked: " : "Starts in: ") + Win32.LayoutName(r.Hkl);
+        string start = r.Start == IntPtr.Zero ? null : ShortName(r.Start);
+        string locked = r.Lock == IntPtr.Zero ? null : ShortName(r.Lock);
+        if (start != null && locked != null) return "Starts in " + start + ", then locked: " + locked;
+        return start != null ? "Starts in: " + start : "Locked: " + locked;
     }
 
-    // Sets (or with rule null, removes) the rule for these programs and saves.
-    void SetRule(IEnumerable<string> exes, LangRule rule)
+    // "English (United States)" -> "English", to fit the Rule column.
+    static string ShortName(IntPtr hkl)
+    {
+        string name = Win32.LayoutName(hkl);
+        int paren = name.IndexOf(" (");
+        return paren > 0 ? name.Substring(0, paren) : name;
+    }
+
+    // Sets the lock (lockRule true) or the start language of these programs; IntPtr.Zero removes it. Saves.
+    void SetRule(IEnumerable<string> exes, bool lockRule, IntPtr hkl)
     {
         foreach (string exe in exes)
         {
-            if (rule == null) rules.Remove(exe);
-            else rules[exe] = rule;
-            Log("language rule " + exe + ": " + (rule == null ? "none" : RuleText(exe)));
+            LangRule r;
+            if (!rules.TryGetValue(exe, out r)) rules[exe] = r = new LangRule();
+            if (lockRule) r.Lock = hkl; else r.Start = hkl;
+            if (r.Lock == IntPtr.Zero && r.Start == IntPtr.Zero) rules.Remove(exe);
+            Log("language rule " + exe + ": " + (rules.ContainsKey(exe) ? RuleText(exe) : "none"));
         }
+        SaveRules();
+    }
+
+    void RemoveRules(IEnumerable<string> exes)
+    {
+        List<string> ruled = new List<string>();
+        foreach (string exe in exes) if (rules.ContainsKey(exe)) ruled.Add(exe);
+        if (ruled.Count == 0) return;
+        foreach (string exe in ruled) rules.Remove(exe);
         SaveRules();
     }
 
@@ -118,8 +142,12 @@ partial class AutoLangSwitcherContext
             foreach (string line in File.ReadAllLines(RulesFile, Encoding.UTF8))
             {
                 string exe;
+                bool lockRule;
+                IntPtr hkl;
+                if (!ParseRule(line, out exe, out lockRule, out hkl)) continue;
                 LangRule r;
-                if (ParseRule(line, out exe, out r)) rules[exe] = r;
+                if (!rules.TryGetValue(exe, out r)) rules[exe] = r = new LangRule();
+                if (lockRule) r.Lock = hkl; else r.Start = hkl;
             }
         }
         catch (Exception ex) { Log("could not read " + RulesFile + ": " + ex.Message); }
@@ -133,21 +161,26 @@ partial class AutoLangSwitcherContext
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("; AutoLangSwitcher - language rules, set on the Apps tab.");
             sb.AppendLine("; program.exe = lock layout-id (always this language) or start layout-id (this language when opened)");
-            foreach (KeyValuePair<string, LangRule> e in rules) sb.AppendLine(RuleLine(e.Key, e.Value));
+            foreach (KeyValuePair<string, LangRule> e in rules)
+            {
+                if (e.Value.Lock != IntPtr.Zero) sb.AppendLine(RuleLine(e.Key, true, e.Value.Lock));
+                if (e.Value.Start != IntPtr.Zero) sb.AppendLine(RuleLine(e.Key, false, e.Value.Start));
+            }
             File.WriteAllText(RulesFile, sb.ToString(), Encoding.UTF8);
         }
         catch (Exception ex) { Log("could not save " + RulesFile + ": " + ex.Message); }
     }
 
-    static string RuleLine(string exe, LangRule r)
+    static string RuleLine(string exe, bool lockRule, IntPtr hkl)
     {
-        return exe + " = " + (r.Lock ? "lock " : "start ") + r.Hkl.ToInt64().ToString("X") + " ; " + Win32.LayoutName(r.Hkl);
+        return exe + " = " + (lockRule ? "lock " : "start ") + hkl.ToInt64().ToString("X") + " ; " + Win32.LayoutName(hkl);
     }
 
-    static bool ParseRule(string line, out string exe, out LangRule rule)
+    static bool ParseRule(string line, out string exe, out bool lockRule, out IntPtr hkl)
     {
         exe = null;
-        rule = null;
+        lockRule = false;
+        hkl = IntPtr.Zero;
         int semi = line.IndexOf(';');
         if (semi >= 0) line = line.Substring(0, semi);
         int eq = line.IndexOf('=');
@@ -157,19 +190,19 @@ partial class AutoLangSwitcherContext
         long v;
         if (exe.Length == 0 || parts.Length != 2 || (parts[0] != "lock" && parts[0] != "start") ||
             !long.TryParse(parts[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v) || v == 0) return false;
-        rule = new LangRule();
-        rule.Lock = parts[0] == "lock";
-        rule.Hkl = new IntPtr(v);
+        lockRule = parts[0] == "lock";
+        hkl = new IntPtr(v);
         return true;
     }
 
     static void RuleSelfTest(Action<bool, string> check)
     {
         IntPtr en = new IntPtr(0x04090409), he = new IntPtr(0x040D040D);
-        LangRule lockEn = new LangRule(), startHe = new LangRule();
-        lockEn.Lock = true;
-        lockEn.Hkl = en;
-        startHe.Hkl = he;
+        LangRule lockEn = new LangRule(), startHe = new LangRule(), both = new LangRule();
+        lockEn.Lock = en;
+        startHe.Start = he;
+        both.Start = he;
+        both.Lock = en;
 
         check(LanguageMemory.Wanted(lockEn, false, he) == en, "a locked program gets its language even when another is remembered");
         check(LanguageMemory.Wanted(startHe, false, en) == en, "a 'start in' program keeps the remembered language while it runs");
@@ -211,10 +244,21 @@ partial class AutoLangSwitcherContext
         running.Add(32);
         check(m.Focus("whatsapp.exe", 32, out why) == he, "sequence: closed and opened again, the start language");
 
+        // Both: opens in the start language, then the locked one every time it comes back; switches never remembered.
+        m.Rules["outlook.exe"] = both;
+        running.Add(40);
+        check(m.Focus("outlook.exe", 40, out why) == he && why == " (start language)", "sequence: with both rules, it opens in the start language");
+        check(!m.Record("outlook.exe", he, out old), "sequence: with both rules, a switch inside is not remembered (locked)");
+        check(m.Focus("outlook.exe", 40, out why) == en && why == " (locked)", "sequence: with both rules, back in front it gets the locked language");
+        running.Remove(40);
+        running.Add(41);
+        check(m.Focus("outlook.exe", 41, out why) == he, "sequence: with both rules, reopened it starts in the start language again");
+
         string exe;
-        LangRule back;
-        check(ParseRule(RuleLine("WhatsApp.exe", lockEn), out exe, out back) && exe == "WhatsApp.exe" && back.Lock && back.Hkl == en,
+        bool lockRule;
+        IntPtr hkl;
+        check(ParseRule(RuleLine("WhatsApp.exe", true, en), out exe, out lockRule, out hkl) && exe == "WhatsApp.exe" && lockRule && hkl == en,
             "a rule line is read back as written");
-        check(!ParseRule("x.exe = sometimes 409", out exe, out back), "a rule line with an unknown word is ignored");
+        check(!ParseRule("x.exe = sometimes 409", out exe, out lockRule, out hkl), "a rule line with an unknown word is ignored");
     }
 }

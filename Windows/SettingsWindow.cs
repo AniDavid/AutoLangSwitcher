@@ -26,19 +26,25 @@ partial class AutoLangSwitcherContext
     ContextMenuStrip AppMenu(List<string> exes, Action done)
     {
         ContextMenuStrip menu = new ContextMenuStrip();
-        foreach (bool lockIt in new bool[] { true, false })
+        // Lock to > and Start in >, each with the installed languages and None; ticks show what the programs have now.
+        foreach (bool lockRule in new bool[] { true, false })
         {
-            ToolStripMenuItem sub = new ToolStripMenuItem(lockIt ? "Lock to (always this language)" : "Start in (this language when opened)");
+            ToolStripMenuItem sub = new ToolStripMenuItem(lockRule ? "Lock to (every time it comes to the front)" : "Start in (when it opens)");
+            IntPtr now = SameRule(exes, lockRule);
             foreach (IntPtr hkl in Win32.Layouts())
             {
-                LangRule r = new LangRule();
-                r.Lock = lockIt;
-                r.Hkl = hkl;
-                sub.DropDownItems.Add(Win32.LayoutName(hkl), null, delegate { SetRule(exes, r); done(); });
+                IntPtr choice = hkl;
+                ToolStripMenuItem item = new ToolStripMenuItem(Win32.LayoutName(hkl), null, delegate { SetRule(exes, lockRule, choice); done(); });
+                item.Checked = now == hkl;
+                sub.DropDownItems.Add(item);
             }
+            sub.DropDownItems.Add(new ToolStripSeparator());
+            ToolStripMenuItem none = new ToolStripMenuItem(lockRule ? "No lock" : "No start language", null,
+                delegate { SetRule(exes, lockRule, IntPtr.Zero); done(); });
+            none.Checked = now == IntPtr.Zero;
+            sub.DropDownItems.Add(none);
             menu.Items.Add(sub);
         }
-        menu.Items.Add("No rule (remember the last language)", null, delegate { SetRule(exes, null); done(); });
         menu.Items.Add(new ToolStripSeparator());
         bool allOff = exes.TrueForAll(delegate(string exe) { return offApps.Contains(exe); });
         menu.Items.Add(allOff ? "Turn smart switch on here" : "Turn smart switch off here", null,
@@ -46,17 +52,26 @@ partial class AutoLangSwitcherContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(exes.Count == 1 ? "Forget this program" : "Forget these programs", null, delegate
         {
-            List<string> ruled = new List<string>();
-            foreach (string exe in exes)
-            {
-                map.Remove(exe);
-                if (rules.ContainsKey(exe)) ruled.Add(exe);
-            }
-            if (ruled.Count > 0) SetRule(ruled, null);
+            foreach (string exe in exes) map.Remove(exe);
+            RemoveRules(exes);
             SaveNow();
             done();
         });
         return menu;
+    }
+
+    // The lock (or start language) all these programs share, IntPtr.Zero if none; new IntPtr(-1) if they differ.
+    IntPtr SameRule(List<string> exes, bool lockRule)
+    {
+        IntPtr same = IntPtr.Zero;
+        for (int i = 0; i < exes.Count; i++)
+        {
+            LangRule r;
+            IntPtr v = rules.TryGetValue(exes[i], out r) ? (lockRule ? r.Lock : r.Start) : IntPtr.Zero;
+            if (i == 0) same = v;
+            else if (v != same) return new IntPtr(-1);
+        }
+        return same;
     }
 
     CheckBox pauseBox;   // kept in sync with the tray's Pause item by SetPaused
@@ -89,10 +104,10 @@ partial class AutoLangSwitcherContext
         list.HideSelection = false;
         list.ShowItemToolTips = true;   // the exe name, over the program's name
         list.GridLines = true;
-        list.Columns.Add("Program", 170);
-        list.Columns.Add("Language", 140);
-        list.Columns.Add("Rule", 175);
-        list.Columns.Add("Smart switch", 85);
+        list.Columns.Add("Program", 160);
+        list.Columns.Add("Language", 120);
+        list.Columns.Add("Rule", 230);
+        list.Columns.Add("Smart switch", 80);
         Button removeAll = MakeButton("Remove all");
         Action fillApps = delegate
         {
@@ -467,10 +482,12 @@ but that switch isn't remembered: leave and come back, and it's back to the lock
 <span class='ex'>Example: lock VS Code to English, so a Hebrew comment doesn't make it Hebrew next time.</span></td></tr>
 <tr><td class='k'>Start in</td><td>The program gets this language <b>when it's opened</b> after being closed. While it runs, your switches are
 remembered as usual. <span class='ex'>Example: WhatsApp always opens in Hebrew, even if you last used it in English.</span></td></tr>
-<tr><td class='k'>No rule</td><td>Back to normal: the last language you used.</td></tr>
+<tr><td class='k'>Both</td><td>A program can have both: it opens in its start language, and every time you come back to it
+it gets the locked one. <span class='ex'>Example: Outlook opens in Hebrew, and is English each time you return to it.</span></td></tr>
 </table>
 {IMG:rules}
-<p>The <b>Rule</b> column on the Apps tab shows each program's rule. A program already running when AutoLangSwitcher starts
+<p>Each menu has a tick next to the current choice; <b>No lock</b> or <b>No start language</b> at the bottom removes that rule.
+The <b>Rule</b> column on the Apps tab shows each program's rules. A program already running when AutoLangSwitcher starts
 gets its start language the first time you switch to it.</p>
 
 <h2>Smart Keyboard Auto Switch</h2>

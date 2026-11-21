@@ -38,6 +38,7 @@ It remembers by program, not by window or tab. All browser tabs share one langua
 
 - **Lock to** a language: the program gets it every time it comes to the front. You can still switch while you're in it, but that isn't remembered. For example, lock VS Code to English so a Hebrew comment doesn't stick.
 - **Start in** a language: the program gets it when it's opened after being closed; while it runs, your switches are remembered as usual. For example, WhatsApp always opens in Hebrew.
+- **Both**: a program can have both, for example Outlook opens in Hebrew and is English every time you come back to it. **No lock** / **No start language** in each menu removes that rule.
 
 ---
 
