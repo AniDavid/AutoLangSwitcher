@@ -560,8 +560,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func appsTab() -> NSView {
         let table = NSTableView()
-        for (id, title, width) in [("app", "Program", CGFloat(140)), ("source", "Input source", CGFloat(100)),
-                                   ("rule", "Rule", CGFloat(240)), ("smart", "Smart switch", CGFloat(80))] {
+        for (id, title, width) in [("app", "Program", CGFloat(130)), ("source", "Input source", CGFloat(95)),
+                                   ("rule", "Rule", CGFloat(215)), ("smart", "Smart switch", CGFloat(80))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             col.width = width
