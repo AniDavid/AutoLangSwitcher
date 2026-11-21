@@ -238,7 +238,15 @@ static class Win32
     // Lower-case exe file name of the app that owns the window, or null.
     public static string ResolveExe(IntPtr hwnd)
     {
+        uint pid;
+        return ResolveExe(hwnd, out pid);
+    }
+
+    // Same, and the id of that app's process (for Store apps, the app's own process, not the frame host).
+    public static string ResolveExe(IntPtr hwnd, out uint appPid)
+    {
         uint pid = ProcessIdOf(hwnd);
+        appPid = pid;
         string exe = ExeName(pid);
 
         // Store apps (Calculator, Mail, ...) all live inside ApplicationFrameHost.exe;
@@ -253,7 +261,11 @@ static class Win32
                 return true;
             }, IntPtr.Zero);
             string real = ExeName(realPid);
-            if (real != null) exe = real;
+            if (real != null)
+            {
+                exe = real;
+                appPid = realPid;
+            }
         }
         return exe;
     }

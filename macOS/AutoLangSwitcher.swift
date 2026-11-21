@@ -136,6 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let defaultsKey = "layouts"
     var map: [String: String] = [:]      // app bundle id -> input source id
+    var rules: [String: String] = [:]    // app bundle id -> "lock:<source>" or "start:<source>" (LanguageRules.swift)
+    var launched = Set<String>()         // apps opened that haven't come to the front yet
     var currentApp: String?
     var paused = false
     var capsOn = false
@@ -193,7 +195,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         migrateLaunchAgent()
         setupMenu()
         smart.load()
+        loadRules()
         log("started, \(map.count) app(s) loaded")
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(appLaunched(_:)),
+            name: NSWorkspace.didLaunchApplicationNotification, object: nil)
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(appActivated(_:)),
@@ -229,15 +236,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if paused { return }
 
         let cur = InputSources.currentID()
-        guard let wanted = map[id] else {
+        let justLaunched = launched.remove(id) != nil
+        guard let wanted = Self.wanted(rule: rules[id], launched: justLaunched, remembered: map[id]) else {
             if let cur = cur { record(id, cur) }   // first time we see this app: remember what it starts with
             return
         }
+        let ruled = Self.parseRule(rules[id])
+        let why = ruled == nil || wanted == map[id] && ruled?.lock == false ? "" : ruled?.lock == true ? " (locked)" : " (start input source)"
         if InputSources.find(wanted) == nil {
             log("focus \(id): saved input source \(InputSources.name(wanted)) is not enabled, skipping")
             return
         }
-        log("auto switch \(id): \(InputSources.name(cur)) -> \(InputSources.name(wanted))")
+        log("auto switch \(id): \(InputSources.name(cur)) -> \(InputSources.name(wanted))\(why)")
         if wanted != cur { InputSources.select(wanted) }
         // Check shortly that the switch stuck; source changes are not recorded until then.
         expected = wanted
@@ -273,6 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func record(_ app: String, _ source: String) {
+        if isLocked(app) { return }   // a switch inside a locked app is never remembered
         let old = map[app]
         guard old != source else { return }
         map[app] = source
@@ -441,7 +452,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     }
 
     func buildSettingsWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 440),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 440),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.title = "AutoLangSwitcher Settings"
@@ -541,8 +552,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func appsTab() -> NSView {
         let table = NSTableView()
-        for (id, title, width) in [("app", "Program", CGFloat(220)), ("source", "Input source", CGFloat(170)),
-                                   ("smart", "Smart switch", CGFloat(90))] {
+        for (id, title, width) in [("app", "Program", CGFloat(160)), ("source", "Input source", CGFloat(130)),
+                                   ("rule", "Rule", CGFloat(160)), ("smart", "Smart switch", CGFloat(80))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             col.width = width
@@ -564,14 +575,16 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let removeAll = NSButton(title: "Remove all", target: self, action: #selector(removeAllApps))
         // Select apps (Command-click or Shift-click for several) to add them to, or take them off, the
         // Smart switch off list.
+        let rule = NSButton(title: "Language rule…", target: self, action: #selector(showRuleMenu(_:)))
         let off = NSButton(title: "Smart switch off", target: self, action: #selector(smartOffForSelected))
         let on = NSButton(title: "Smart switch on", target: self, action: #selector(smartOnForSelected))
-        smartOffButtons = [off, on]
-        return page(scroll, [remove, removeAll, off, on])
+        smartOffButtons = [rule, off, on]   // enabled when apps are selected
+        return page(scroll, [remove, removeAll, rule, off, on])
     }
 
     func fillApps() {
-        appRows = map.map { (app: $0.key, source: $0.value) }
+        // Remembered apps, plus locked ones that never got a remembered input source.
+        appRows = Set(map.keys).union(rules.keys).map { (app: $0, source: map[$0] ?? "") }
             .sorted { displayName($0.app).lowercased() < displayName($1.app).lowercased() }
         appsTable?.reloadData()
         removeButton?.isEnabled = false
@@ -586,7 +599,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let r = appRows[row]
         let column = tableColumn?.identifier.rawValue
         let isApp = column == "app"
-        let text = isApp ? displayName(r.app) : column == "smart" ? (smart.isOff(r.app) ? "off" : "") : InputSources.name(r.source)
+        let text = isApp ? displayName(r.app) : column == "smart" ? (smart.isOff(r.app) ? "off" : "")
+            : column == "rule" ? ruleText(r.app) : r.source.isEmpty ? "" : InputSources.name(r.source)
         let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         if isApp { field.toolTip = r.app }
@@ -610,9 +624,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     @objc func removeSelectedApps() {
         guard let table = appsTable else { return }
-        for i in table.selectedRowIndexes where i < appRows.count {
-            map.removeValue(forKey: appRows[i].app)
-        }
+        let apps = table.selectedRowIndexes.filter { $0 < appRows.count }.map { appRows[$0].app }
+        apps.forEach { map.removeValue(forKey: $0) }
+        let ruled = apps.filter { rules[$0] != nil }
+        if !ruled.isEmpty { setRule(ruled, nil) }
         save()
         fillApps()
     }
@@ -852,6 +867,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     func takeScreenshots(to dir: String) {
         // Names that aren't installed apps or enabled input sources are shown as they are.
         map = ["WhatsApp": "Hebrew", "Microsoft Word": "Hebrew", "Mail": "Hebrew", "Safari": "ABC", "com.apple.Terminal": "ABC"]
+        rules = ["WhatsApp": "start:Hebrew", "com.apple.Terminal": "lock:ABC"]
         smart.offApps = Set(SmartSwitch.defaultOffApps.map { $0.lowercased() })
         smart.on = true   // so the General tab shows its options enabled
         buildSettingsWindow()
@@ -916,13 +932,26 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         {IMG:apps}
         <ul>
         <li><b>Apps:</b> the apps it remembers and their input sources. Select some (<kbd>Command</kbd>-click for several) and click
-        <b>Remove</b> to forget them, or <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</li>
+        <b>Remove</b> to forget them, <b>Language rule…</b> to lock their input source or choose the one they open in (below), or
+        <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</li>
         <li><b>General:</b> pause it, start it when you log in, and Smart Keyboard Auto Switch.</li>
         <li><b>Smart switch off:</b> the apps where Smart Keyboard Auto Switch stays off, by bundle id (<code>com.jetbrains.*</code> matches a family).</li>
         <li><b>Saved list:</b> the remembered list, as stored in the app's preferences.</li>
         <li><b>Log:</b> what it has been doing: <span class='blue'>blue</span> switches you made, <span class='green'>green</span> switches it made,
         <span class='purple'>purple</span> smart switch, <span class='gray'>gray</span> focus changes, <span class='red'>red</span> problems.</li>
         </ul>
+
+        <h2>Language rules: lock, or start in a language</h2>
+        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, select it on the
+        <b>Apps</b> tab, click <b>Language rule…</b> and choose:</p>
+        <ul>
+        <li><b>Lock to:</b> the app gets this input source <b>every time</b> it comes to the front. You can still switch while you're in it,
+        but that switch isn't remembered: leave and come back, and it's back to the locked one. Example: lock Terminal to ABC.</li>
+        <li><b>Start in:</b> the app gets this input source <b>when it's opened</b> after being quit. While it runs, your switches are
+        remembered as usual. Example: WhatsApp always opens in Hebrew.</li>
+        <li><b>No rule:</b> back to normal, the last input source you used.</li>
+        </ul>
+        <p>The <b>Rule</b> column on the Apps tab shows each app's rule.</p>
 
         <h2>Smart Keyboard Auto Switch</h2>
         <p class='lead'>Optional, and off unless you turn it on in General.</p>
@@ -988,7 +1017,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 struct Main {
     @MainActor static func main() {
         let app = NSApplication.shared
-        if CommandLine.arguments.contains("--selftest") { exit(SmartSwitch.selfTest()) }
+        if CommandLine.arguments.contains("--selftest") { exit(SmartSwitch.selfTest() + AppDelegate.ruleSelfTest()) }
         let args = CommandLine.arguments
         if args.count == 3, args[1] == "--screenshots" {
             AppDelegate().takeScreenshots(to: args[2])

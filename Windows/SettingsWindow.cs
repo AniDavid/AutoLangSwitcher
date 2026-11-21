@@ -27,7 +27,7 @@ partial class AutoLangSwitcherContext
         form.Text = Title + " Settings";
         form.Icon = tray.Icon;
         form.StartPosition = FormStartPosition.CenterScreen;
-        form.Size = new Size(560, 440);
+        form.Size = new Size(620, 440);
         form.MinimumSize = new Size(420, 320);
 
         TabControl tabs = new TabControl();
@@ -40,32 +40,69 @@ partial class AutoLangSwitcherContext
         list.FullRowSelect = true;
         list.MultiSelect = true;
         list.HideSelection = false;
-        list.Columns.Add("Program", 260);
-        list.Columns.Add("Language", 160);
-        list.Columns.Add("Smart switch", 90);
+        list.Columns.Add("Program", 150);
+        list.Columns.Add("Language", 140);
+        list.Columns.Add("Rule", 175);
+        list.Columns.Add("Smart switch", 80);
         Button remove = MakeButton("Remove");
         Button removeAll = MakeButton("Remove all");
+        Button ruleButton = MakeButton("Language rule...");
         Button offButton = MakeButton("Smart switch off");
         Button onButton = MakeButton("Smart switch on");
-        remove.Enabled = offButton.Enabled = onButton.Enabled = false;
+        remove.Enabled = ruleButton.Enabled = offButton.Enabled = onButton.Enabled = false;
         list.SelectedIndexChanged += delegate
         {
-            remove.Enabled = offButton.Enabled = onButton.Enabled = list.SelectedItems.Count > 0;
+            remove.Enabled = ruleButton.Enabled = offButton.Enabled = onButton.Enabled = list.SelectedItems.Count > 0;
         };
         Action fillApps = delegate
         {
             list.BeginUpdate();
             list.Items.Clear();
-            foreach (KeyValuePair<string, IntPtr> e in map)
-                list.Items.Add(new ListViewItem(new string[] { e.Key, Win32.LayoutName(e.Value), offApps.Contains(e.Key) ? "off" : "" }));
+            // Remembered programs, plus locked ones that never got a remembered language.
+            SortedSet<string> exes = new SortedSet<string>(map.Keys, StringComparer.OrdinalIgnoreCase);
+            exes.UnionWith(rules.Keys);
+            foreach (string exe in exes)
+            {
+                IntPtr hkl;
+                list.Items.Add(new ListViewItem(new string[] {
+                    exe, map.TryGetValue(exe, out hkl) ? Win32.LayoutName(hkl) : "", RuleText(exe), offApps.Contains(exe) ? "off" : "" }));
+            }
             list.EndUpdate();
-            remove.Enabled = offButton.Enabled = onButton.Enabled = false;
+            remove.Enabled = ruleButton.Enabled = offButton.Enabled = onButton.Enabled = false;
         };
         remove.Click += delegate
         {
-            foreach (ListViewItem item in list.SelectedItems) map.Remove(item.Text);
+            List<string> gone = new List<string>();
+            foreach (ListViewItem item in list.SelectedItems)
+            {
+                map.Remove(item.Text);
+                if (rules.ContainsKey(item.Text)) gone.Add(item.Text);
+            }
+            if (gone.Count > 0) SetRule(gone, null);
             SaveNow();
             fillApps();
+        };
+        // Language rule...: Lock to > language, Start in > language, No rule; for all selected programs.
+        ruleButton.Click += delegate
+        {
+            List<string> exes = new List<string>();
+            foreach (ListViewItem item in list.SelectedItems) exes.Add(item.Text);
+            ContextMenuStrip menu = new ContextMenuStrip();
+            foreach (bool lockIt in new bool[] { true, false })
+            {
+                ToolStripMenuItem sub = new ToolStripMenuItem(lockIt ? "Lock to (always this language)" : "Start in (this language when opened)");
+                foreach (IntPtr hkl in Win32.Layouts())
+                {
+                    LangRule r = new LangRule();
+                    r.Lock = lockIt;
+                    r.Hkl = hkl;
+                    sub.DropDownItems.Add(Win32.LayoutName(hkl), null, delegate { SetRule(exes, r); fillApps(); });
+                }
+                menu.Items.Add(sub);
+            }
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("No rule (remember the last language)", null, delegate { SetRule(exes, null); fillApps(); });
+            menu.Show(ruleButton, new Point(0, ruleButton.Height));
         };
         removeAll.Click += delegate { ForgetAll(); fillApps(); };
         // Select programs (Ctrl+click or Shift+click for several) to add them to, or take them off,
@@ -79,7 +116,7 @@ partial class AutoLangSwitcherContext
         };
         offButton.Click += delegate { setOff(true); };
         onButton.Click += delegate { setOff(false); };
-        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(remove, removeAll, offButton, onButton));
+        TabPage appsTab = MakeTab("Apps", list, MakeButtonBar(remove, removeAll, ruleButton, offButton, onButton));
 
         // ---- General
         pauseBox = new CheckBox();
@@ -361,7 +398,8 @@ For example: Hebrew in WhatsApp, English in your code editor.</p>
 {IMG:apps}
 <table>
 <tr><td class='k'>Apps</td><td>The programs it remembers and their languages. Select some (<kbd>Ctrl</kbd>+click for several) and click
-<b>Remove</b> to forget them, or <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</td></tr>
+<b>Remove</b> to forget them, <b>Language rule...</b> to lock their language or choose the one they open in (below), or
+<b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</td></tr>
 <tr><td class='k'>General</td><td>Pause, start with Windows, check for updates, Smart Keyboard Auto Switch, and whether it runs as administrator.</td></tr>
 <tr><td class='k'>Smart switch off</td><td>The programs where Smart Keyboard Auto Switch stays off, one exe name per line.</td></tr>
 <tr><td class='k'>Settings file</td><td>The saved list, as stored on disk.</td></tr>
@@ -369,6 +407,20 @@ For example: Hebrew in WhatsApp, English in your code editor.</p>
 <span class='blue'>blue</span> switches you made, <span class='green'>green</span> switches it made,
 <span class='purple'>purple</span> smart switch, <span class='gray'>gray</span> focus changes, <span class='red'>red</span> problems.</td></tr>
 </table>
+
+<h2>Language rules: lock, or start in a language</h2>
+<p>Normally the last language you used in a program wins. To give a program a fixed language instead, select it on the
+<b>Apps</b> tab, click <b>Language rule...</b> and choose:</p>
+<table>
+<tr><td class='k'>Lock to</td><td>The program gets this language <b>every time</b> it comes to the front. You can still switch while you're in it,
+but that switch isn't remembered: leave and come back, and it's back to the locked language.
+<span class='ex'>Example: lock VS Code to English, so a Hebrew comment doesn't make it Hebrew next time.</span></td></tr>
+<tr><td class='k'>Start in</td><td>The program gets this language <b>when it's opened</b> after being closed. While it runs, your switches are
+remembered as usual. <span class='ex'>Example: WhatsApp always opens in Hebrew, even if you last used it in English.</span></td></tr>
+<tr><td class='k'>No rule</td><td>Back to normal: the last language you used.</td></tr>
+</table>
+<p>The <b>Rule</b> column on the Apps tab shows each program's rule. A program already running when AutoLangSwitcher starts
+gets its start language the first time you switch to it.</p>
 
 <h2>Smart Keyboard Auto Switch</h2>
 <p class='lead'>Optional, and off unless you turn it on in the General tab.</p>

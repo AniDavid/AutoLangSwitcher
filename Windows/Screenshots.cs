@@ -26,6 +26,12 @@ partial class AutoLangSwitcherContext
         map["chrome.exe"] = en;
         map["Code.exe"] = en;
         foreach (string exe in DefaultOffApps) offApps.Add(exe);
+        LangRule startHe = new LangRule(), lockEn = new LangRule();
+        startHe.Hkl = he;
+        lockEn.Lock = true;
+        lockEn.Hkl = en;
+        rules["WhatsApp.exe"] = startHe;
+        rules["Code.exe"] = lockEn;
         smartOn = true;   // so the General tab shows its options enabled
         tray.Icon = normalIcon;
 
