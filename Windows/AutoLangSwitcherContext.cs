@@ -28,8 +28,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
     };
 
     // ---------------------------------------------------------------- State
-    // exe -> layout. Sorted so the settings file and the menu list apps alphabetically.
-    readonly SortedDictionary<string, IntPtr> map = new SortedDictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
+    // map (exe -> layout) and rules live in LanguageMemory (LanguageRules.cs).
     readonly List<string> logLines = new List<string>();
     readonly Win32.WinEventDelegate hookProc;   // kept in a field so the GC does not collect it
     readonly IntPtr hook;
@@ -53,6 +52,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
     public AutoLangSwitcherContext()
     {
         Load();
+        LoadRules();
 
         // Older versions (KeyboardMemory) started via the Run key or their own task, pointing at the
         // old exe. Replace that with this app's scheduled task (needs admin).
@@ -130,7 +130,8 @@ partial class AutoLangSwitcherContext : ApplicationContext
     {
         hwnd = Win32.RootOf(hwnd);
         if (hwnd == IntPtr.Zero || hwnd == curHwnd || IsIgnored(hwnd)) return;
-        string exe = Win32.ResolveExe(hwnd);
+        uint pid;
+        string exe = Win32.ResolveExe(hwnd, out pid);
 
         // explorer.exe also draws the taskbar, its language menu and other pop-ups. Only File Explorer
         // windows count as an app; otherwise picking a language from the taskbar would be undone.
@@ -152,8 +153,9 @@ partial class AutoLangSwitcherContext : ApplicationContext
         failedLayout = IntPtr.Zero;
         if (exe == null || paused) return;
 
-        IntPtr wanted;
-        if (!map.TryGetValue(exe, out wanted))
+        string why;
+        IntPtr wanted = memory.Focus(exe, pid, out why);
+        if (wanted == IntPtr.Zero)
         {
             Log("focus " + exe + ": not remembered yet");
             return;
@@ -169,7 +171,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
         int error;
         if (!Win32.RequestLayout(hwnd, wanted, out error))
             Log("  PostMessage failed (error " + error + ") - app may be running as administrator");
-        Log("auto switch " + exe + ": " + Win32.LayoutName(Win32.LayoutOf(hwnd)) + " -> " + Win32.LayoutName(wanted));
+        Log("auto switch " + exe + ": " + Win32.LayoutName(Win32.LayoutOf(hwnd)) + " -> " + Win32.LayoutName(wanted) + why);
         // Give the app a moment to switch before we start recording again,
         // otherwise we could record the old layout for this app.
         ignoreUntil = Environment.TickCount + 800;
@@ -213,9 +215,8 @@ partial class AutoLangSwitcherContext : ApplicationContext
     {
         if (exe == null || hkl == IntPtr.Zero || hkl == failedLayout) return;
         IntPtr old;
-        bool known = map.TryGetValue(exe, out old);
-        if (known && old == hkl) return;
-        map[exe] = hkl;
+        if (!memory.Record(exe, hkl, out old)) return;   // unchanged, or locked
+        bool known = old != IntPtr.Zero;
         dirty = true;
         // Automatic switches set the remembered layout, so any other change came from the user.
         Log((known ? "manual switch " + exe + ": " + Win32.LayoutName(old) + " -> " : "remember new app " + exe + ": ") +

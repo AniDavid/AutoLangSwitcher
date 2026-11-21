@@ -806,6 +806,7 @@ partial class AutoLangSwitcherContext
         }
 
         UpdateSelfTest(check);
+        RuleSelfTest(check);
 
         IntPtr en = FindLayout("en"), he = FindLayout("he");
         if (en == IntPtr.Zero || he == IntPtr.Zero)

@@ -45,6 +45,7 @@ static class Win32
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] static extern IntPtr GetKeyboardLayout(uint idThread);
     [DllImport("user32.dll")] static extern int GetKeyboardLayoutList(int nBuff, [Out] IntPtr[] lpList);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr LoadKeyboardLayout(string klid, uint flags);
     [DllImport("user32.dll", SetLastError = true)] static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO info);
@@ -238,7 +239,15 @@ static class Win32
     // Lower-case exe file name of the app that owns the window, or null.
     public static string ResolveExe(IntPtr hwnd)
     {
+        uint pid;
+        return ResolveExe(hwnd, out pid);
+    }
+
+    // Same, and the id of that app's process (for Store apps, the app's own process, not the frame host).
+    public static string ResolveExe(IntPtr hwnd, out uint appPid)
+    {
         uint pid = ProcessIdOf(hwnd);
+        appPid = pid;
         string exe = ExeName(pid);
 
         // Store apps (Calculator, Mail, ...) all live inside ApplicationFrameHost.exe;
@@ -253,7 +262,11 @@ static class Win32
                 return true;
             }, IntPtr.Zero);
             string real = ExeName(realPid);
-            if (real != null) exe = real;
+            if (real != null)
+            {
+                exe = real;
+                appPid = realPid;
+            }
         }
         return exe;
     }

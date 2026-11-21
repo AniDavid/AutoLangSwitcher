@@ -16,7 +16,7 @@ By default it does not read what you type; it only restores each program's langu
 
 כותבים גם בעברית וגם באנגלית? AutoLangSwitcher זוכרת את שפת המקלדת האחרונה שבחרתם בכל תוכנה, ומחזירה אותה אוטומטית כשאתם חוזרים לאותה תוכנה. למשל, עברית בוואטסאפ ובוורד, ואנגלית בעורך הקוד ובטרמינל. בלי להקליד שורה של ג'יבריש ולגלות רק אחר כך שהשפה לא נכונה.
 
-אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. כברירת מחדל התוכנה לא קוראת את מה שאתם מקלידים.
+אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. רוצים שתוכנה תמיד תהיה באנגלית, או שוואטסאפ תמיד ייפתח בעברית? בלשונית Apps אפשר לנעול לתוכנה שפה (**Lock to**) או לקבוע באיזו שפה היא תיפתח (**Start in**). כברירת מחדל התוכנה לא קוראת את מה שאתם מקלידים.
 
 אפשר גם להפעיל את **Smart Keyboard Auto Switch** (כבוי כברירת מחדל): הקלדתם "akuo" במקום "שלום"? התוכנה תציע לתקן את המילה, או תתקן אותה לבד, ותחליף את שפת המקלדת. כדי לעשות את זה היא קוראת את ההקלדה, אבל לא שומרת ולא שולחת שום דבר.
 
@@ -33,6 +33,11 @@ There's nothing to set up. Use your computer as usual:
 - To change a program's language, just switch it again. The new choice replaces the old one.
 
 It remembers by program, not by window or tab. All browser tabs share one language, for example.
+
+**Language rules** (optional): to give a program a fixed language instead of the last one you used, select it on the **Apps** tab of the Settings window and click **Language rule...**:
+
+- **Lock to** a language: the program gets it every time it comes to the front. You can still switch while you're in it, but that isn't remembered. For example, lock VS Code to English so a Hebrew comment doesn't stick.
+- **Start in** a language: the program gets it when it's opened after being closed; while it runs, your switches are remembered as usual. For example, WhatsApp always opens in Hebrew.
 
 ---
 
@@ -67,7 +72,7 @@ While **Caps Lock** is on, the tray keyboard turns orange and shows a capital **
 
 | Tab | What it shows |
 |---|---|
-| **Apps** | Each remembered program and its language. Select programs (Ctrl+click for several) and click **Remove** to forget them, or **Remove all**. **Smart switch off** / **Smart switch on** add the selected programs to, or take them off, the Smart switch off list; the **Smart switch** column shows which are off. |
+| **Apps** | Each remembered program and its language. Select programs (Ctrl+click for several) and click **Remove** to forget them, or **Remove all**. **Language rule...** locks their language or sets the language they open in; the **Rule** column shows it. **Smart switch off** / **Smart switch on** add the selected programs to, or take them off, the Smart switch off list; the **Smart switch** column shows which are off. |
 | **General** | **Pause**, **Start with Windows**, **Check for updates once a day**, **Smart Keyboard Auto Switch** (mode, fix key, never-change list), and whether AutoLangSwitcher is running as administrator. |
 | **Smart switch off** | The programs where Smart Keyboard Auto Switch stays off, one exe name per line. Code editors and terminals are on it to start with. |
 | **Settings file** | The saved list, exactly as stored on disk. |
@@ -91,7 +96,7 @@ Typed "akuo" when you meant "שלום"? When you finish a word (with Space, punc
 - Some antivirus programs are suspicious of any app that reads typing. If yours complains, turn the feature off.
 - **On macOS** the fix key is **Control+Option+Z** by default (Macs have no Pause/Break key; you can choose Control+Option+X, Control+Option+F or F13), the suggestion appears next to the menu bar icon, and macOS asks you to allow AutoLangSwitcher under System Settings → Privacy & Security → **Accessibility**. After rebuilding the app, macOS may ask again: remove the old entry and allow the new one.
 
-If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu or on the **General** tab. Settings are saved in `%APPDATA%\AutoLangSwitcher`: `layouts.txt` (the programs and their languages), `never-change.txt` and `smart-switch-off.txt`.
+If you clicked **No** at the admin prompt, it won't be able to switch programs that run as administrator. Use **Restart as administrator** in the tray menu or on the **General** tab. Settings are saved in `%APPDATA%\AutoLangSwitcher`: `layouts.txt` (the programs and their languages), `language-rules.txt`, `never-change.txt` and `smart-switch-off.txt`.
 
 ---
 
@@ -125,7 +130,7 @@ No special permissions are needed, unless you turn on **Smart Keyboard Auto Swit
 
 While **Caps Lock** is on, the menu bar keyboard turns orange and shows a capital **A**.
 
-The **Settings** window has the same tabs as on Windows: **Apps** (remove remembered apps, or turn smart switch off or on for them), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Smart switch off** (the apps where smart switch stays off, by bundle id; `com.jetbrains.*` matches a family), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
+The **Settings** window has the same tabs as on Windows: **Apps** (remove remembered apps, set a language rule, or turn smart switch off or on for them), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Smart switch off** (the apps where smart switch stays off, by bundle id; `com.jetbrains.*` matches a family), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
 
 **Tip:** Turn off macOS's own **"Automatically switch to a document's input source"** setting so the two don't fight. It's in System Settings → Keyboard → Text Input → Input Sources → Edit.
 
