@@ -27,6 +27,11 @@ partial class AutoLangSwitcherContext
         map["OUTLOOK.EXE"] = he;
         map["chrome.exe"] = en;
         map["Code.exe"] = en;
+        programNames["WhatsApp.exe"] = "WhatsApp";
+        programNames["WINWORD.EXE"] = "Microsoft Word";
+        programNames["OUTLOOK.EXE"] = "Microsoft Outlook";
+        programNames["chrome.exe"] = "Google Chrome";
+        programNames["Code.exe"] = "Visual Studio Code";
         foreach (string exe in DefaultOffApps) offApps.Add(exe);
         LangRule startHe = new LangRule(), lockEn = new LangRule();
         startHe.Hkl = he;
@@ -62,11 +67,11 @@ partial class AutoLangSwitcherContext
         form.TopMost = true;
         form.Activate();
 
-        // The Language rule menu, open on WhatsApp with Start in > Hebrew highlighted.
+        // The right-click menu, open on WhatsApp with Start in > Hebrew highlighted.
         tabs.SelectedIndex = 0;
         ListView list = (ListView)tabs.TabPages[0].Controls[0];
-        foreach (ListViewItem item in list.Items) item.Selected = item.Text == "WhatsApp.exe";
-        ContextMenuStrip ruleMenu = RuleMenu(new List<string>(), delegate { });
+        foreach (ListViewItem item in list.Items) item.Selected = (string)item.Tag == "WhatsApp.exe";
+        ContextMenuStrip ruleMenu = AppMenu(new List<string> { "WhatsApp.exe" }, delegate { });
         ruleMenu.Show(list, new Point(90, 60));   // over the list, so the menus stay inside the window
         ToolStripMenuItem start = (ToolStripMenuItem)ruleMenu.Items[1];
         start.Select();

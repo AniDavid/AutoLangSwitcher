@@ -53,6 +53,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
     {
         Load();
         LoadRules();
+        LoadNames();
 
         // Older versions (KeyboardMemory) started via the Run key or their own task, pointing at the
         // old exe. Replace that with this app's scheduled task (needs admin).
@@ -157,6 +158,7 @@ partial class AutoLangSwitcherContext : ApplicationContext
         failedLayout = IntPtr.Zero;
         if (exe == null || paused) return;
 
+        NoteProgramName(exe, pid);
         string why;
         IntPtr wanted = memory.Focus(exe, pid, out why);
         if (wanted == IntPtr.Zero)

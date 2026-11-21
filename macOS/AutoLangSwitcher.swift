@@ -157,9 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsWindow: NSWindow?
     var settingsTabs: NSTabView?
     var appsTable: NSTableView?
-    var removeButton: NSButton?
     var appRows: [(app: String, source: String)] = []
-    var smartOffButtons: [NSButton] = []
     var pauseBox: NSButton?
     var loginBox: NSButton?
     var savedListView: NSTextView?
@@ -578,18 +576,20 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         appsTable = table
+        // Right-click (or Control-click, or double-click) an app for its menu; it applies to all selected apps.
+        let menu = NSMenu()
+        menu.delegate = self   // filled in menuNeedsUpdate (LanguageRules.swift)
+        table.menu = menu
+        table.target = self
+        table.doubleAction = #selector(appDoubleClicked)
 
-        let remove = NSButton(title: "Remove", target: self, action: #selector(removeSelectedApps))
-        remove.isEnabled = false
-        removeButton = remove
         let removeAll = NSButton(title: "Remove all", target: self, action: #selector(removeAllApps))
-        // Select apps (Command-click or Shift-click for several) to add them to, or take them off, the
-        // Smart switch off list.
-        let rule = NSButton(title: "Language rule…", target: self, action: #selector(showRuleMenu(_:)))
-        let off = NSButton(title: "Smart switch off", target: self, action: #selector(smartOffForSelected))
-        let on = NSButton(title: "Smart switch on", target: self, action: #selector(smartOnForSelected))
-        smartOffButtons = [rule, off, on]   // enabled when apps are selected
-        return page(scroll, [remove, removeAll, rule, off, on])
+        let hint = NSTextField(wrappingLabelWithString: "Right-click an app to lock its input source, set the one it opens in, " +
+                               "turn smart switch off or on, or forget it.")
+        hint.textColor = .secondaryLabelColor
+        hint.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.preferredMaxLayoutWidth = 440
+        return page(scroll, [removeAll, hint])
     }
 
     func fillApps() {
@@ -597,8 +597,6 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         appRows = Set(map.keys).union(rules.keys).map { (app: $0, source: map[$0] ?? "") }
             .sorted { displayName($0.app).lowercased() < displayName($1.app).lowercased() }
         appsTable?.reloadData()
-        removeButton?.isEnabled = false
-        smartOffButtons.forEach { $0.isEnabled = false }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -609,18 +607,12 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let r = appRows[row]
         let column = tableColumn?.identifier.rawValue
         let isApp = column == "app"
-        let text = isApp ? displayName(r.app) : column == "smart" ? (smart.isOff(r.app) ? "off" : "")
+        let text = isApp ? displayName(r.app) : column == "smart" ? (!smart.on ? "" : smart.isOff(r.app) ? "Off" : "On")
             : column == "rule" ? ruleText(r.app) : r.source.isEmpty ? "" : InputSources.name(r.source)
         let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         if isApp { field.toolTip = r.app }
         return field
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        let any = !(appsTable?.selectedRowIndexes.isEmpty ?? true)
-        removeButton?.isEnabled = any
-        smartOffButtons.forEach { $0.isEnabled = any }
     }
 
     @objc func smartOffForSelected() { setSelectedAppsOff(true) }
@@ -945,9 +937,9 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <h2>The tabs</h2>
         {IMG:apps}
         <ul>
-        <li><b>Apps:</b> the apps it remembers and their input sources. Select some (<kbd>Command</kbd>-click for several) and click
-        <b>Remove</b> to forget them, <b>Language rule…</b> to lock their input source or choose the one they open in (below), or
-        <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</li>
+        <li><b>Apps:</b> the apps it remembers and their input sources. <b>Right-click</b> (or Control-click, or double-click) an app
+        to lock its input source or choose the one it opens in (below), turn Smart Keyboard Auto Switch off or on there, or forget it.
+        Select several with <kbd>Command</kbd>-click to change them together.</li>
         <li><b>General:</b> pause it, start it when you log in, and Smart Keyboard Auto Switch.</li>
         <li><b>Smart switch off:</b> the apps where Smart Keyboard Auto Switch stays off, by bundle id (<code>com.jetbrains.*</code> matches a family).</li>
         <li><b>Saved list:</b> the remembered list, as stored in the app's preferences.</li>
@@ -956,8 +948,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         </ul>
 
         <h2>Language rules: lock, or start in a language</h2>
-        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, select it on the
-        <b>Apps</b> tab, click <b>Language rule…</b> and choose:</p>
+        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, right-click it on the
+        <b>Apps</b> tab and choose:</p>
         <ul>
         <li><b>Lock to:</b> the app gets this input source <b>every time</b> it comes to the front. You can still switch while you're in it,
         but that switch isn't remembered: leave and come back, and it's back to the locked one. Example: lock Terminal to ABC.</li>
@@ -993,7 +985,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into macOS, plus letter
         statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
         <li>It stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others), where keys can be commands
-        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or with the buttons on the <b>Apps</b> tab.</li>
+        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by right-clicking an app on the <b>Apps</b> tab.</li>
         <li>macOS asks you to allow AutoLangSwitcher under System Settings &gt; Privacy &amp; Security &gt; <b>Accessibility</b>. It is needed to
         read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.</li>
         </ul>

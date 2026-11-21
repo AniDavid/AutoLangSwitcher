@@ -5,7 +5,7 @@
 
 import Cocoa
 
-extension AppDelegate {
+extension AppDelegate: NSMenuDelegate {
     static let rulesKey = "languageRules"
 
     func loadRules() {
@@ -48,9 +48,16 @@ extension AppDelegate {
         if app.isActive { handleActivation(app) }
     }
 
-    // Apps tab: Language rule... > Lock to > source, Start in > source, No rule; for all selected apps.
-    @objc func showRuleMenu(_ sender: NSButton) {
-        let menu = NSMenu()
+    // Apps tab: the menu for the selected apps. A right-click on an app that isn't selected selects just that one.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let table = appsTable, menu === table.menu else { return }
+        menu.removeAllItems()
+        let clicked = table.clickedRow
+        if clicked >= 0 && !table.selectedRowIndexes.contains(clicked) {
+            table.selectRowIndexes(IndexSet(integer: clicked), byExtendingSelection: false)
+        }
+        let apps = table.selectedRowIndexes.filter { $0 < appRows.count }.map { appRows[$0].app }
+        if apps.isEmpty { return }
         for lock in [true, false] {
             let item = NSMenuItem(title: lock ? "Lock to (always this input source)" : "Start in (this input source when opened)",
                                   action: nil, keyEquivalent: "")
@@ -64,11 +71,26 @@ extension AppDelegate {
             item.submenu = sub
             menu.addItem(item)
         }
-        menu.addItem(.separator())
         let none = NSMenuItem(title: "No rule (remember the last input source)", action: #selector(ruleChosen(_:)), keyEquivalent: "")
         none.target = self
         menu.addItem(none)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.isFlipped ? sender.bounds.height + 4 : -4), in: sender)
+        menu.addItem(.separator())
+        let allOff = apps.allSatisfy { smart.isOff($0) }
+        let toggle = NSMenuItem(title: allOff ? "Turn smart switch on here" : "Turn smart switch off here",
+                                action: allOff ? #selector(smartOnForSelected) : #selector(smartOffForSelected), keyEquivalent: "")
+        toggle.target = self
+        menu.addItem(toggle)
+        menu.addItem(.separator())
+        let forget = NSMenuItem(title: apps.count == 1 ? "Forget this app" : "Forget these apps",
+                                action: #selector(removeSelectedApps), keyEquivalent: "")
+        forget.target = self
+        menu.addItem(forget)
+    }
+
+    // Double-click an app: the same menu, at the pointer.
+    @objc func appDoubleClicked() {
+        guard let table = appsTable, let menu = table.menu, table.clickedRow >= 0, let event = NSApp.currentEvent else { return }
+        NSMenu.popUpContextMenu(menu, with: event, for: table)
     }
 
     @objc func ruleChosen(_ item: NSMenuItem) {
