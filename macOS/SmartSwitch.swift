@@ -367,8 +367,11 @@ final class SmartSwitch {
             }
         }
         if run.isEmpty { return false }
+        // Caps Lock on by mistake: a second pass reads the keys as if it were off ("AKUO" meant as Hebrew).
+        let anyCaps = run.contains { $0.contains { $0.caps } }
+        for capsOff in anyCaps ? [false, true] : [false] {
         for other in layouts where Self.twoLetter(other.lang) != Self.twoLetter(layout.lang) {
-            let meant = run.map { Self.text($0, other) }
+            let meant = run.map { Self.text(capsOff ? $0.map { var k = $0; k.caps = false; return k } : $0, other) }
             guard let first = Self.fixStart(typed, layout.lang, meant, other.lang) else { continue }
             let typedRun = typed[first...].joined(separator: " ")
             let meantRun = meant[first...].compactMap { $0 }.joined(separator: " ")
@@ -391,6 +394,7 @@ final class SmartSwitch {
             }
             setFix(meantRun + ender, hint: "Fix \u{2192} \(name): \(fixKeyName)")
             return false
+        }
         }
         // "akuo,": on a Hebrew/English Mac the comma key is also a Hebrew letter, so it went into the
         // word. Try again with it as punctuation.
@@ -640,10 +644,13 @@ final class SmartSwitch {
         if abbreviations.contains(lower) { return true }
         let two = twoLetter(lang)
         if let short = shortWords[two], w.count <= 2 { return short.contains(lower) }
-        if let known = Spelling.check(lang, w) {
+        // A word in capitals ("AKUO", typed with Caps Lock on) is checked in lower case, as spell checkers may accept
+        // anything in capitals; real acronyms ("API") are then found with their capitals.
+        let asked = w.uppercased() == w && lower != w ? lower : w
+        if let known = Spelling.check(lang, asked) {
             // Dictionaries list acronyms and names only with their capitals: "API", "London".
             // Not for 1-2 letters: almost every pair of capitals is some code.
-            return known || (w.count >= 3 && Spelling.knownWithOtherCase(lang, w))
+            return known || (w.count >= 3 && Spelling.knownWithOtherCase(lang, asked))
         }
         if LetterStats.has(two) { return LetterStats.margin(two, w) <= 0 }
         return nil

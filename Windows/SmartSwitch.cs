@@ -509,12 +509,17 @@ partial class AutoLangSwitcherContext
         }
         if (run.Count == 0) return false;   // the current word itself can't be checked
         string[] typed = typedWords.ToArray();
+        // Caps Lock on by mistake: some layouts (Hebrew) type English capitals with it, so "AKUO" is "AKUO" there
+        // too. A second pass reads the keys as if Caps Lock were off, and that fix also turns it off.
+        bool anyCaps = run.Exists(delegate(Stroke[] keys) { return Array.Exists(keys, delegate(Stroke s) { return s.Caps; }); });
+        for (int pass = 0; pass < (anyCaps ? 2 : 1); pass++)
         foreach (IntPtr other in Win32.Layouts())
         {
             string olang = LangOf(other);
             if (olang == lang) continue;
+            bool capsOff = pass == 1;
             string[] meant = new string[run.Count];
-            for (int i = 0; i < run.Count; i++) meant[i] = TextOf(run[i], other);
+            for (int i = 0; i < run.Count; i++) meant[i] = TextOf(capsOff ? WithoutCaps(run[i]) : run[i], other);
             int first = FixStart(typed, lang, meant, olang);
             if (first < 0) continue;
 
@@ -522,11 +527,11 @@ partial class AutoLangSwitcherContext
             string meantRun = string.Join(" ", meant, first, meant.Length - first);
             int words = typed.Length - first;
             string what = words == 1 ? "word" : words + " words";
-            Log("smart switch " + curExe + ": last " + what + " looked like " +
-                Win32.LayoutName(other) + (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
-            return OfferFix(meantRun + ender, typedRun + ender, other, layout, hwnd, ender, thenKey, false,
+            Log("smart switch " + curExe + ": last " + what + " looked like " + Win32.LayoutName(other) +
+                (capsOff ? " with Caps Lock off" : "") + (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
+            return OfferFix(meantRun + ender, typedRun + ender, other, layout, hwnd, ender, thenKey, capsOff,
                 "Typed in the wrong language? Press " + FixKeyName + " to change the last " + what + " to " +
-                Win32.LayoutName(other) + ".", false);
+                Win32.LayoutName(other) + (capsOff ? " and turn Caps Lock off." : "."), false);
         }
         // "akuo,": on a Hebrew/English PC the comma key is also the Hebrew letter tav, so it went into
         // the word. Try again with it as punctuation.
@@ -644,6 +649,13 @@ partial class AutoLangSwitcherContext
         OfferFix(bestText + ender, typed + ender, best, w.Layout, hwnd, ender, 0, false, null, true);
     }
 
+    static Stroke[] WithoutCaps(Stroke[] keys)
+    {
+        Stroke[] plain = (Stroke[])keys.Clone();
+        for (int i = 0; i < plain.Length; i++) plain[i].Caps = false;
+        return plain;
+    }
+
     // "hELLO": typed with Caps Lock on, holding Shift for the first letter, as when Caps Lock was hit by mistake.
     static bool IsCapsLockSlip(Stroke[] keys, string w)
     {
@@ -736,10 +748,13 @@ partial class AutoLangSwitcherContext
         HashSet<string> shortWords;
         if (ShortWords.TryGetValue(TwoLetter(lang), out shortWords) && w.Length <= MaxLength(shortWords))
             return shortWords.Contains(w.ToLowerInvariant());
-        bool? dict = Speller.Check(lang, w);
+        // The spell checker accepts any word in capitals ("AKUO", typed with Caps Lock on), so those are checked in
+        // lower case; real acronyms ("API") are then found with their capitals below.
+        string asked = w.ToUpperInvariant() == w && w.ToLowerInvariant() != w ? w.ToLowerInvariant() : w;
+        bool? dict = Speller.Check(lang, asked);
         // Dictionaries list acronyms and names only with their capitals: "API", "London".
         // Not for 1-2 letters: almost every pair of capitals is some code ("AK" is Alaska).
-        if (dict == false && w.Length >= 3 && Speller.KnownWithOtherCase(lang, w)) dict = true;
+        if (dict == false && w.Length >= 3 && Speller.KnownWithOtherCase(lang, asked)) dict = true;
         if (dict != null) return dict;
         string two = TwoLetter(lang);
         if (LetterStats.Has(two)) return LetterStats.Margin(two, w) <= 0;
@@ -839,6 +854,14 @@ partial class AutoLangSwitcherContext
         check(!IsCapsLockSlip(KeysOf("Hello", en), "Hello"), "'Hello' typed normally is not a Caps Lock slip");
         slip[0].Shift = false;
         check(!IsCapsLockSlip(slip, "HELLO"), "'HELLO' typed with Caps Lock on purpose is left alone");
+        // "AKUO": Caps Lock on, English keyboard, Hebrew meant. Read without Caps Lock, the keys are shalom.
+        Stroke[] capsAkuo = KeysOf("akuo", en);
+        for (int i = 0; i < capsAkuo.Length; i++) capsAkuo[i].Caps = true;
+        check(TextOf(WithoutCaps(capsAkuo), he) == shalom && IsWrongLanguage(TextOf(capsAkuo, en), LangOf(en), shalom, LangOf(he)),
+            "'AKUO' typed with Caps Lock on is caught as shalom");
+        if (Speller.Check("en-US", "hello") != null)
+            check(IsWord("en-US", "API") == true && IsWord("en-US", "HELLO") == true && IsWord("en-US", "AKUO") == false,
+                "words in capitals: 'API' and 'HELLO' are English, 'AKUO' isn't");
         CrossCheck(o, check, "he", he, en);
         CrossCheck(o, check, "en", en, he);
         return fails;
