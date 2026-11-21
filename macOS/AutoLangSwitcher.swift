@@ -460,7 +460,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     }
 
     func buildSettingsWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 440),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 440),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.title = "AutoLangSwitcher Settings"
@@ -561,7 +561,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     func appsTab() -> NSView {
         let table = NSTableView()
         for (id, title, width) in [("app", "Program", CGFloat(130)), ("source", "Input source", CGFloat(95)),
-                                   ("rule", "Rule", CGFloat(215)), ("smart", "Smart switch", CGFloat(80))] {
+                                   ("rule", "Rule", CGFloat(250)), ("smart", "Smart switch", CGFloat(80))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             col.width = width
