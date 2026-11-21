@@ -566,6 +566,12 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
             if id == "smart" { col.headerToolTip = "Smart Keyboard Auto Switch on in this app" }
+            // The rule columns' headers in the colours of their set cells (rulePopup in LanguageRules.swift).
+            if id == "start" || id == "lock" {
+                col.headerCell.attributedStringValue = NSAttributedString(string: title, attributes: [
+                    .foregroundColor: id == "lock" ? NSColor.systemOrange : NSColor.systemBlue,
+                    .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)])
+            }
             col.width = width
             table.addTableColumn(col)
         }

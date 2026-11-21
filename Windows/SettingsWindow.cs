@@ -74,6 +74,18 @@ partial class AutoLangSwitcherContext
         return same;
     }
 
+    // Apps tab colours: a cell with a rule gets a pale tint (blue for Start in, amber for Locked to); "None" is grey.
+    // The colour only repeats what the text says.
+    static readonly Color StartTint = Color.FromArgb(225, 237, 255), LockTint = Color.FromArgb(255, 238, 208);
+    static readonly Color StartText = Color.FromArgb(26, 95, 180), LockText = Color.FromArgb(170, 100, 0);
+
+    static void StyleRuleCell(DataGridViewCell cell, bool lockColumn)
+    {
+        bool set = cell.Value is string && (string)cell.Value != NoRule;
+        cell.Style.BackColor = !set ? Color.Empty : lockColumn ? LockTint : StartTint;
+        cell.Style.ForeColor = set ? Color.Empty : SystemColors.GrayText;
+    }
+
     CheckBox pauseBox;   // kept in sync with the tray's Pause item by SetPaused
 
     void ShowSettings()
@@ -127,6 +139,11 @@ partial class AutoLangSwitcherContext
         smartCol.HeaderText = "Smart switch";
         smartCol.Width = 80;
         grid.Columns.AddRange(new DataGridViewColumn[] { programCol, langCol, startCol, lockCol, smartCol });
+        // The two rule columns' headers in the colours of their set cells (see StyleRuleCell).
+        grid.EnableHeadersVisualStyles = false;
+        grid.ColumnHeadersDefaultCellStyle.BackColor = SystemColors.Control;
+        startCol.HeaderCell.Style.ForeColor = StartText;
+        lockCol.HeaderCell.Style.ForeColor = LockText;
         Button removeAll = MakeButton("Remove all");
         Dictionary<string, IntPtr> layoutOf = new Dictionary<string, IntPtr>();   // dropdown text -> layout
         bool filling = false;
@@ -168,6 +185,7 @@ partial class AutoLangSwitcherContext
                         layoutOf[LayoutLabel(set)] = set;
                     }
                     cell.Value = set == IntPtr.Zero ? NoRule : LayoutLabel(set);
+                    StyleRuleCell(cell, c == 3);
                 }
             }
             grid.CurrentCell = null;   // nothing selected until the user clicks
@@ -189,8 +207,15 @@ partial class AutoLangSwitcherContext
                 IntPtr hkl;
                 if (!layoutOf.TryGetValue(v as string ?? "", out hkl)) hkl = IntPtr.Zero;
                 SetRule(exe, e.ColumnIndex == 3, hkl);
+                StyleRuleCell(grid.Rows[e.RowIndex].Cells[e.ColumnIndex], e.ColumnIndex == 3);
             }
             else if (e.ColumnIndex == 4) SetAppsOff(exe, !(v is bool && (bool)v));
+        };
+        // The open dropdown in normal colours, not the grey of a "None" cell.
+        grid.EditingControlShowing += delegate(object sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            e.CellStyle.ForeColor = SystemColors.WindowText;
+            e.CellStyle.BackColor = SystemColors.Window;
         };
         grid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
         // One click on a dropdown cell opens it.

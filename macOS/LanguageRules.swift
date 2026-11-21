@@ -94,13 +94,16 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(forget)
     }
 
-    // The Start in / Locked to popup in the Apps table: None, then the enabled input sources.
-    func rulePopup(app: String, lock: Bool, row: Int) -> NSPopUpButton {
+    // The Start in / Locked to popup in the Apps table: None, then the enabled input sources. A cell with a rule gets a
+    // pale tint (blue for Start in, orange for Locked to) and "None" is grey; the colour only repeats what the text says.
+    func rulePopup(app: String, lock: Bool, row: Int) -> NSView {
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         popup.controlSize = .small
         popup.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         popup.isBordered = false
         popup.addItem(withTitle: "None")
+        popup.lastItem?.attributedTitle = NSAttributedString(string: "None", attributes: [
+            .foregroundColor: NSColor.secondaryLabelColor, .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)])
         let current = lock ? locks[app] : starts[app]
         var ids = SmartSwitch.keyboardLayouts().map { $0.id }
         if let c = current, !ids.contains(c) { ids.append(c) }   // an input source that isn't enabled any more
@@ -113,12 +116,28 @@ extension AppDelegate: NSMenuDelegate {
         popup.identifier = NSUserInterfaceItemIdentifier(lock ? "lock" : "start")
         popup.target = self
         popup.action = #selector(rulePopupChanged(_:))
-        return popup
+        let cell = NSView()
+        cell.wantsLayer = true
+        cell.layer?.cornerRadius = 4
+        popup.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(popup)
+        NSLayoutConstraint.activate([popup.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+                                     popup.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+                                     popup.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+        tintRuleCell(popup)
+        return cell
+    }
+
+    func tintRuleCell(_ popup: NSPopUpButton) {
+        let set = popup.indexOfSelectedItem > 0
+        let color: NSColor = popup.identifier?.rawValue == "lock" ? .systemOrange : .systemBlue
+        popup.superview?.layer?.backgroundColor = set ? color.withAlphaComponent(0.15).cgColor : nil
     }
 
     @objc func rulePopupChanged(_ popup: NSPopUpButton) {
         guard popup.tag < appRows.count else { return }
         setRule([appRows[popup.tag].app], lock: popup.identifier?.rawValue == "lock", popup.selectedItem?.representedObject as? String)
+        tintRuleCell(popup)
     }
 
     @objc func smartBoxClicked(_ box: NSButton) {

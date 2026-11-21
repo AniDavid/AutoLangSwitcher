@@ -84,7 +84,7 @@ partial class AutoLangSwitcherContext
                 ((ComboBox)grid.EditingControl).DroppedDown = true;
             }
         Rectangle window = form.RectangleToScreen(form.ClientRectangle);
-        SaveScreen(window, Path.Combine(dir, "help-rules.png"));
+        SaveScreen(window, form.Handle, Path.Combine(dir, "help-rules.png"));
         grid.CancelEdit();
         grid.EndEdit();
 
@@ -92,14 +92,28 @@ partial class AutoLangSwitcherContext
         ContextMenuStrip trayMenu = MakeTrayMenu(false);
         trayMenu.Show(window.Left + 40, window.Top + 40);
         trayMenu.Items[1].Select();   // Help
-        SaveScreen(trayMenu.Bounds, Path.Combine(dir, "help-tray.png"));
+        SaveScreen(trayMenu.Bounds, trayMenu.Handle, Path.Combine(dir, "help-tray.png"));
         trayMenu.Close();
         // The form is left open (the process exits next), so closing it can't save anything.
     }
 
-    static void SaveScreen(Rectangle r, string file)
+    // Saves what is on the screen at r, but only once the window `owner` is really the one there (checked at three
+    // corners); otherwise another program's window would end up in the picture, so nothing is saved.
+    static void SaveScreen(Rectangle r, IntPtr owner, string file)
     {
-        for (int i = 0; i < 10; i++) { Application.DoEvents(); System.Threading.Thread.Sleep(50); }   // let the menus draw
+        Point[] corners = { new Point(r.Left + 4, r.Top + 4), new Point(r.Left + 4, r.Bottom - 4), new Point(r.Right - 4, r.Bottom - 4) };
+        bool onTop = false;
+        for (int i = 0; i < 40 && !onTop; i++)
+        {
+            Application.DoEvents();
+            System.Threading.Thread.Sleep(50);   // let the menus draw
+            onTop = i >= 10 && Array.TrueForAll(corners, delegate(Point p) { return Win32.RootOf(Win32.WindowFromPoint(p)) == owner; });
+        }
+        if (!onTop)
+        {
+            Environment.ExitCode = 3;   // the picture is left as it was
+            return;
+        }
         using (Bitmap b = new Bitmap(r.Width, r.Height))
         {
             using (Graphics g = Graphics.FromImage(b)) g.CopyFromScreen(r.Location, Point.Empty, r.Size);
