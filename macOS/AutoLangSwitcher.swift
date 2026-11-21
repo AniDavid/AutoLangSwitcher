@@ -331,6 +331,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        let help = NSMenuItem(title: "Help", action: #selector(showHelp), keyEquivalent: "")
+        help.target = self
+        menu.addItem(help)
 
         pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
         pauseItem.target = self
@@ -449,6 +452,13 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         refreshSelectedTab()
         NSApp.activate(ignoringOtherApps: true)   // menu bar apps are in the background
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    // Menu bar menu > Help: the Settings window, on the Help tab.
+    @objc func showHelp() {
+        if settingsWindow == nil { buildSettingsWindow() }
+        settingsTabs?.selectTabViewItem(withIdentifier: "Help")
+        showSettings()
     }
 
     func buildSettingsWindow() {
@@ -927,6 +937,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <li>To change an app's input source, just switch it again. The new choice replaces the old one.</li>
         </ul>
         <p class='note'>It remembers by <b>app</b>, not by window or tab: all browser tabs share one input source.</p>
+
+        <h2>The menu bar menu</h2>
+        <p>Click the keyboard icon in the menu bar: <b>Settings…</b> opens this window, <b>Help</b> opens it on this page, and
+        <b>Pause</b> stops switching for a while.</p>
 
         <h2>The tabs</h2>
         {IMG:apps}
