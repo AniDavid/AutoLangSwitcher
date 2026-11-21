@@ -562,9 +562,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         let table = NSTableView()
         for (id, title, width) in [("app", "Program", CGFloat(130)), ("source", "Input source", CGFloat(90)),
                                    ("start", "Start in", CGFloat(120)), ("lock", "Locked to", CGFloat(120)),
-                                   ("smart", "Smart switch", CGFloat(95))] {
+                                   ("smart", "Smart", CGFloat(60))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
+            if id == "smart" { col.headerToolTip = "Smart Keyboard Auto Switch on in this app" }
             col.width = width
             table.addTableColumn(col)
         }
@@ -958,7 +959,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         {IMG:apps}
         <ul>
         <li><b>Apps:</b> the apps it remembers and their input sources. Click a <b>Start in</b> or <b>Locked to</b> cell to choose an
-        input source (below), and tick or untick <b>Smart switch</b> to turn Smart Keyboard Auto Switch on or off there.
+        input source (below), and tick or untick <b>Smart</b> to turn Smart Keyboard Auto Switch on or off there.
         <b>Right-click</b> (or Control-click) an app to forget it, or select several (<kbd>Command</kbd>-click) and right-click to change
         them together.</li>
         <li><b>General:</b> pause it, start it when you log in, and Smart Keyboard Auto Switch.</li>
@@ -1007,7 +1008,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into macOS, plus letter
         statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
         <li>It stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others), where keys can be commands
-        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by unticking <b>Smart switch</b> on the <b>Apps</b> tab.</li>
+        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by unticking <b>Smart</b> on the <b>Apps</b> tab.</li>
         <li>macOS asks you to allow AutoLangSwitcher under System Settings &gt; Privacy &amp; Security &gt; <b>Accessibility</b>. It is needed to
         read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.</li>
         </ul>
