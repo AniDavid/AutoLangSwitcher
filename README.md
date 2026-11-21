@@ -16,7 +16,7 @@ By default it does not read what you type; it only restores each program's langu
 
 כותבים גם בעברית וגם באנגלית? AutoLangSwitcher זוכרת את שפת המקלדת האחרונה שבחרתם בכל תוכנה, ומחזירה אותה אוטומטית כשאתם חוזרים לאותה תוכנה. למשל, עברית בוואטסאפ ובוורד, ואנגלית בעורך הקוד ובטרמינל. בלי להקליד שורה של ג'יבריש ולגלות רק אחר כך שהשפה לא נכונה.
 
-אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. רוצים שתוכנה תמיד תהיה באנגלית, או שוואטסאפ תמיד ייפתח בעברית? בלשונית Apps אפשר לנעול לתוכנה שפה (**Lock to**) או לקבוע באיזו שפה היא תיפתח (**Start in**). כברירת מחדל התוכנה לא קוראת את מה שאתם מקלידים.
+אין שום הגדרות. פשוט בוחרים שפה בתוכנה, והיא נזכרת. רוצים שתוכנה תמיד תהיה באנגלית, או שוואטסאפ תמיד ייפתח בעברית? בלשונית Apps אפשר לנעול לתוכנה שפה (עמודת **Locked to**) או לקבוע באיזו שפה היא תיפתח (עמודת **Start in**), או את שניהם. מדריך מלא עם תמונות נמצא בלשונית **Help** (או **Help** בתפריט של הסמל). כברירת מחדל התוכנה לא קוראת את מה שאתם מקלידים.
 
 אפשר גם להפעיל את **Smart Keyboard Auto Switch** (כבוי כברירת מחדל): הקלדתם "akuo" במקום "שלום"? התוכנה תציע לתקן את המילה, או תתקן אותה לבד, ותחליף את שפת המקלדת. כדי לעשות את זה היא קוראת את ההקלדה, אבל לא שומרת ולא שולחת שום דבר.
 
@@ -40,6 +40,10 @@ It remembers by program, not by window or tab. All browser tabs share one langua
 - **Start in** a language: the program gets it when it's opened after being closed; while it runs, your switches are remembered as usual. For example, WhatsApp always opens in Hebrew.
 - **Both**: a program can have both, for example Outlook opens in Hebrew and is English every time you come back to it. **None** removes a rule.
 
+![The Apps tab: each program with its language, Start in and Locked to dropdowns, and a Smart switch tick box](Windows/Help/help-apps.png)
+
+The **Help** tab in the Settings window (or **Help** in the tray menu) is a full user manual with pictures.
+
 ---
 
 ## Windows
@@ -55,7 +59,7 @@ It remembers by program, not by window or tab. All browser tabs share one langua
 
 **Or use the installer:** download [AutoLangSwitcher.msi](https://github.com/AniDavid/AutoLangSwitcher/releases/latest/download/AutoLangSwitcher.msi) from the [latest release](https://github.com/AniDavid/AutoLangSwitcher/releases/latest) and run it. It installs to `C:\Program Files\AutoLangSwitcher`, adds a Start menu shortcut and starts the app. Uninstall it from **Settings → Apps**; this also turns off **Start with Windows**. Your remembered programs in `%APPDATA%` are kept. The installer isn't digitally signed, so Windows shows a SmartScreen warning: click **More info → Run anyway**.
 
-Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .NET Framework 4.8 version (nothing to install) and a .NET 10 version (needs the .NET 10 Desktop Runtime).
+Developers can also open `AutoLangSwitcher.sln` in Visual Studio. It builds a .NET Framework 4.8 version (nothing to install) and a .NET 10 version (needs the .NET 10 Desktop Runtime). `AutoLangSwitcher.exe --selftest` runs the built-in checks (GitHub runs them on every push, for Windows and macOS), and `--screenshots <folder>` retakes the Help pictures with example programs.
 
 **Tray menu** (right-click the icon)
 
@@ -133,7 +137,7 @@ No special permissions are needed, unless you turn on **Smart Keyboard Auto Swit
 
 While **Caps Lock** is on, the menu bar keyboard turns orange and shows a capital **A**.
 
-The **Settings** window has the same tabs as on Windows: **Apps** (Start in and Locked to columns, a Smart switch tick box, right-click to forget), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Smart switch off** (the apps where smart switch stays off, by bundle id; `com.jetbrains.*` matches a family), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
+The **Settings** window has the same tabs as on Windows: **Apps** (Start in and Locked to popups, a **Smart** tick box, right-click to forget), **General** (**Pause**, **Start at Login** and **Smart Keyboard Auto Switch**), **Smart switch off** (the apps where smart switch stays off, by bundle id; `com.jetbrains.*` matches a family), **Saved list** (the remembered list; macOS keeps it in the app's preferences instead of a file), **Log** and **Help**.
 
 **Tip:** Turn off macOS's own **"Automatically switch to a document's input source"** setting so the two don't fight. It's in System Settings → Keyboard → Text Input → Input Sources → Edit.
 
