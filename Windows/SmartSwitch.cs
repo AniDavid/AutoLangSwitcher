@@ -494,6 +494,15 @@ partial class AutoLangSwitcherContext
             return OfferFix(SwapCase(cur) + ender, cur + ender, layout, layout, hwnd, ender, thenKey, true,
                 "Caps Lock was on? Press " + FixKeyName + " to fix the word and turn Caps Lock off.", false);
         }
+        // "AKUO" on the Hebrew keyboard: with Caps Lock on it types English capitals, and shalom was meant.
+        string uncapped = cur == null || IsKept(cur) ? null : CapsLockMeant(current.Keys, layout, cur);
+        if (uncapped != null)
+        {
+            Log("smart switch " + curExe + ": word typed with Caps Lock on, meant in " + Win32.LayoutName(layout) +
+                (smartAuto ? ", fixed" : ", suggested (" + FixKeyName + ")"));
+            return OfferFix(uncapped + ender, cur + ender, layout, layout, hwnd, ender, thenKey, true,
+                "Caps Lock was on? Press " + FixKeyName + " to fix the word and turn Caps Lock off.", false);
+        }
         // The end of the run, current word last. A word typed with another layout, or one on the
         // never-change list, cuts it.
         List<Stroke[]> run = new List<Stroke[]>();
@@ -647,6 +656,18 @@ partial class AutoLangSwitcherContext
         if (bestText == null) return;
         Log("smart switch " + curExe + ": " + FixKeyName + " pressed, last word changed to " + Win32.LayoutName(best));
         OfferFix(bestText + ender, typed + ender, best, w.Layout, hwnd, ender, 0, false, null, true);
+    }
+
+    // The word as meant when Caps Lock was on by mistake and changed the letters themselves, not just their case
+    // (Windows' Hebrew keyboard types English capitals with it): what the same keys give without Caps Lock, if that
+    // is a real word and what was typed isn't. Otherwise null.
+    static string CapsLockMeant(Stroke[] keys, IntPtr layout, string typed)
+    {
+        if (keys.Length < MinLetters || !Array.Exists(keys, delegate(Stroke s) { return s.Caps; })) return null;
+        string plain = TextOf(WithoutCaps(keys), layout);
+        if (plain == null || string.Equals(plain, typed, StringComparison.OrdinalIgnoreCase)) return null;   // only the case changed
+        string lang = LangOf(layout);
+        return IsWord(lang, plain) == true && IsWord(lang, typed) != true ? plain : null;
     }
 
     static Stroke[] WithoutCaps(Stroke[] keys)
@@ -859,6 +880,13 @@ partial class AutoLangSwitcherContext
         for (int i = 0; i < capsAkuo.Length; i++) capsAkuo[i].Caps = true;
         check(TextOf(WithoutCaps(capsAkuo), he) == shalom && IsWrongLanguage(TextOf(capsAkuo, en), LangOf(en), shalom, LangOf(he)),
             "'AKUO' typed with Caps Lock on is caught as shalom");
+        Stroke[] capsOnHebrew = KeysOf("akuo", en);   // the same keys, typed with the Hebrew keyboard
+        for (int i = 0; i < capsOnHebrew.Length; i++) capsOnHebrew[i].Caps = true;
+        string typedOnHebrew = TextOf(capsOnHebrew, he);
+        check(typedOnHebrew == shalom || CapsLockMeant(capsOnHebrew, he, typedOnHebrew) == shalom,
+            "'AKUO' typed on the Hebrew keyboard with Caps Lock on is fixed to shalom");
+        check(CapsLockMeant(capsAkuo, en, "AKUO") == null && CapsLockMeant(KeysOf("HELLO", en), en, "HELLO") == null,
+            "on the English keyboard, Caps Lock only changes case, so nothing to fix there");
         if (Speller.Check("en-US", "hello") != null)
             check(IsWord("en-US", "API") == true && IsWord("en-US", "HELLO") == true && IsWord("en-US", "AKUO") == false,
                 "words in capitals: 'API' and 'HELLO' are English, 'AKUO' isn't");
