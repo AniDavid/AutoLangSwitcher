@@ -88,6 +88,7 @@ partial class AutoLangSwitcherContext
         list.MultiSelect = true;
         list.HideSelection = false;
         list.ShowItemToolTips = true;   // the exe name, over the program's name
+        list.GridLines = true;
         list.Columns.Add("Program", 170);
         list.Columns.Add("Language", 140);
         list.Columns.Add("Rule", 175);

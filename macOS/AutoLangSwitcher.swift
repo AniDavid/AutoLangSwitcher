@@ -569,6 +569,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         }
         table.allowsMultipleSelection = true
         table.usesAlternatingRowBackgroundColors = true
+        table.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
         table.dataSource = self
         table.delegate = self
         let scroll = NSScrollView()
