@@ -27,6 +27,9 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        // Draw at the screen's real resolution, so text is sharp on scaled (125%, 150%) screens instead of stretched.
+        Win32.SetProcessDPIAware();
+
         bool restarted = HasArg(args, "--restarted");    // relaunched by "Restart as administrator"
         bool noElevate = HasArg(args, "--no-elevate");   // never show the admin prompt
 

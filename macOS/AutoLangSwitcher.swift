@@ -136,7 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let defaultsKey = "layouts"
     var map: [String: String] = [:]      // app bundle id -> input source id
-    var rules: [String: String] = [:]    // app bundle id -> "lock:<source>" or "start:<source>" (LanguageRules.swift)
+    var locks: [String: String] = [:]    // app bundle id -> input source it is locked to (LanguageRules.swift)
+    var starts: [String: String] = [:]   // app bundle id -> input source it starts in
     var launched = Set<String>()         // apps opened that haven't come to the front yet
     var currentApp: String?
     var paused = false
@@ -157,9 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var settingsWindow: NSWindow?
     var settingsTabs: NSTabView?
     var appsTable: NSTableView?
-    var removeButton: NSButton?
     var appRows: [(app: String, source: String)] = []
-    var smartOffButtons: [NSButton] = []
     var pauseBox: NSButton?
     var loginBox: NSButton?
     var savedListView: NSTextView?
@@ -237,12 +236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let cur = InputSources.currentID()
         let justLaunched = launched.remove(id) != nil
-        guard let wanted = Self.wanted(rule: rules[id], launched: justLaunched, remembered: map[id]) else {
+        guard let wanted = Self.wanted(lock: locks[id], start: starts[id], launched: justLaunched, remembered: map[id]) else {
             if let cur = cur { record(id, cur) }   // first time we see this app: remember what it starts with
             return
         }
-        let ruled = Self.parseRule(rules[id])
-        let why = ruled == nil || wanted == map[id] && ruled?.lock == false ? "" : ruled?.lock == true ? " (locked)" : " (start input source)"
+        let why = justLaunched && starts[id] == wanted ? " (start input source)" : locks[id] == wanted ? " (locked)" : ""
         if InputSources.find(wanted) == nil {
             log("focus \(id): saved input source \(InputSources.name(wanted)) is not enabled, skipping")
             return
@@ -462,7 +460,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     }
 
     func buildSettingsWindow() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 440),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 440),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.title = "AutoLangSwitcher Settings"
@@ -562,15 +560,25 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
 
     func appsTab() -> NSView {
         let table = NSTableView()
-        for (id, title, width) in [("app", "Program", CGFloat(160)), ("source", "Input source", CGFloat(130)),
-                                   ("rule", "Rule", CGFloat(160)), ("smart", "Smart switch", CGFloat(80))] {
+        for (id, title, width) in [("app", "Program", CGFloat(130)), ("source", "Input source", CGFloat(90)),
+                                   ("start", "Start in", CGFloat(120)), ("lock", "Locked to", CGFloat(120)),
+                                   ("smart", "Smart", CGFloat(60))] {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             col.title = title
+            if id == "smart" { col.headerToolTip = "Smart Keyboard Auto Switch on in this app" }
+            // The rule columns' headers in the colours of their set cells (rulePopup in LanguageRules.swift).
+            if id == "start" || id == "lock" {
+                col.headerCell.attributedStringValue = NSAttributedString(string: title, attributes: [
+                    .foregroundColor: id == "lock" ? NSColor.systemOrange : NSColor.systemBlue,
+                    .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)])
+            }
             col.width = width
             table.addTableColumn(col)
         }
         table.allowsMultipleSelection = true
         table.usesAlternatingRowBackgroundColors = true
+        table.rowHeight = 22   // room for the popups
+        table.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
         table.dataSource = self
         table.delegate = self
         let scroll = NSScrollView()
@@ -578,27 +586,27 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         appsTable = table
+        // Right-click (or Control-click, or double-click) an app for its menu; it applies to all selected apps.
+        let menu = NSMenu()
+        menu.delegate = self   // filled in menuNeedsUpdate (LanguageRules.swift)
+        table.menu = menu
+        table.target = self
+        table.doubleAction = #selector(appDoubleClicked)
 
-        let remove = NSButton(title: "Remove", target: self, action: #selector(removeSelectedApps))
-        remove.isEnabled = false
-        removeButton = remove
         let removeAll = NSButton(title: "Remove all", target: self, action: #selector(removeAllApps))
-        // Select apps (Command-click or Shift-click for several) to add them to, or take them off, the
-        // Smart switch off list.
-        let rule = NSButton(title: "Language rule…", target: self, action: #selector(showRuleMenu(_:)))
-        let off = NSButton(title: "Smart switch off", target: self, action: #selector(smartOffForSelected))
-        let on = NSButton(title: "Smart switch on", target: self, action: #selector(smartOnForSelected))
-        smartOffButtons = [rule, off, on]   // enabled when apps are selected
-        return page(scroll, [remove, removeAll, rule, off, on])
+        let hint = NSTextField(wrappingLabelWithString: "Click a Start in or Locked to cell to choose an input source. " +
+                               "Right-click to forget an app, or to change several selected apps at once.")
+        hint.textColor = .secondaryLabelColor
+        hint.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.preferredMaxLayoutWidth = 440
+        return page(scroll, [removeAll, hint])
     }
 
     func fillApps() {
         // Remembered apps, plus locked ones that never got a remembered input source.
-        appRows = Set(map.keys).union(rules.keys).map { (app: $0, source: map[$0] ?? "") }
+        appRows = Set(map.keys).union(locks.keys).union(starts.keys).map { (app: $0, source: map[$0] ?? "") }
             .sorted { displayName($0.app).lowercased() < displayName($1.app).lowercased() }
         appsTable?.reloadData()
-        removeButton?.isEnabled = false
-        smartOffButtons.forEach { $0.isEnabled = false }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -608,19 +616,29 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let r = appRows[row]
         let column = tableColumn?.identifier.rawValue
+        // Start in / Locked to: a popup of the enabled input sources; Smart switch: a tick box. Changes apply right away.
+        if column == "start" || column == "lock" {
+            return rulePopup(app: r.app, lock: column == "lock", row: row)
+        }
+        if column == "smart" {
+            let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(smartBoxClicked(_:)))
+            box.state = smart.isOff(r.app) ? .off : .on
+            box.tag = row
+            return box
+        }
         let isApp = column == "app"
-        let text = isApp ? displayName(r.app) : column == "smart" ? (smart.isOff(r.app) ? "off" : "")
-            : column == "rule" ? ruleText(r.app) : r.source.isEmpty ? "" : InputSources.name(r.source)
+        let text = isApp ? displayName(r.app) : r.source.isEmpty ? "" : InputSources.name(r.source)
         let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         if isApp { field.toolTip = r.app }
-        return field
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        let any = !(appsTable?.selectedRowIndexes.isEmpty ?? true)
-        removeButton?.isEnabled = any
-        smartOffButtons.forEach { $0.isEnabled = any }
+        // Centred in the row, like the popups next to it.
+        let cell = NSView()
+        field.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(field)
+        NSLayoutConstraint.activate([field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                                     field.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor),
+                                     field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+        return cell
     }
 
     @objc func smartOffForSelected() { setSelectedAppsOff(true) }
@@ -636,8 +654,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         guard let table = appsTable else { return }
         let apps = table.selectedRowIndexes.filter { $0 < appRows.count }.map { appRows[$0].app }
         apps.forEach { map.removeValue(forKey: $0) }
-        let ruled = apps.filter { rules[$0] != nil }
-        if !ruled.isEmpty { setRule(ruled, nil) }
+        if apps.contains(where: { locks[$0] != nil }) { setRule(apps, lock: true, nil) }
+        if apps.contains(where: { starts[$0] != nil }) { setRule(apps, lock: false, nil) }
         save()
         fillApps()
     }
@@ -877,7 +895,8 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
     func takeScreenshots(to dir: String) {
         // Names that aren't installed apps or enabled input sources are shown as they are.
         map = ["WhatsApp": "Hebrew", "Microsoft Word": "Hebrew", "Mail": "Hebrew", "Safari": "ABC", "com.apple.Terminal": "ABC"]
-        rules = ["WhatsApp": "start:Hebrew", "com.apple.Terminal": "lock:ABC"]
+        starts = ["WhatsApp": "Hebrew", "Mail": "Hebrew"]
+        locks = ["com.apple.Terminal": "ABC", "Mail": "ABC"]
         smart.offApps = Set(SmartSwitch.defaultOffApps.map { $0.lowercased() })
         smart.on = true   // so the General tab shows its options enabled
         buildSettingsWindow()
@@ -945,9 +964,10 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <h2>The tabs</h2>
         {IMG:apps}
         <ul>
-        <li><b>Apps:</b> the apps it remembers and their input sources. Select some (<kbd>Command</kbd>-click for several) and click
-        <b>Remove</b> to forget them, <b>Language rule…</b> to lock their input source or choose the one they open in (below), or
-        <b>Smart switch off</b> / <b>Smart switch on</b> to choose where Smart Keyboard Auto Switch works.</li>
+        <li><b>Apps:</b> the apps it remembers and their input sources. Click a <b>Start in</b> or <b>Locked to</b> cell to choose an
+        input source (below), and tick or untick <b>Smart</b> to turn Smart Keyboard Auto Switch on or off there.
+        <b>Right-click</b> (or Control-click) an app to forget it, or select several (<kbd>Command</kbd>-click) and right-click to change
+        them together.</li>
         <li><b>General:</b> pause it, start it when you log in, and Smart Keyboard Auto Switch.</li>
         <li><b>Smart switch off:</b> the apps where Smart Keyboard Auto Switch stays off, by bundle id (<code>com.jetbrains.*</code> matches a family).</li>
         <li><b>Saved list:</b> the remembered list, as stored in the app's preferences.</li>
@@ -956,16 +976,17 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         </ul>
 
         <h2>Language rules: lock, or start in a language</h2>
-        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, select it on the
-        <b>Apps</b> tab, click <b>Language rule…</b> and choose:</p>
+        <p>Normally the last input source you used in an app wins. To give an app a fixed one instead, choose one in its
+        <b>Start in</b> or <b>Locked to</b> column on the <b>Apps</b> tab:</p>
         <ul>
         <li><b>Lock to:</b> the app gets this input source <b>every time</b> it comes to the front. You can still switch while you're in it,
         but that switch isn't remembered: leave and come back, and it's back to the locked one. Example: lock Terminal to ABC.</li>
         <li><b>Start in:</b> the app gets this input source <b>when it's opened</b> after being quit. While it runs, your switches are
         remembered as usual. Example: WhatsApp always opens in Hebrew.</li>
-        <li><b>No rule:</b> back to normal, the last input source you used.</li>
+        <li><b>Both:</b> an app can have both: it opens in its start input source, and every time you come back to it it gets
+        the locked one.</li>
         </ul>
-        <p>The <b>Rule</b> column on the Apps tab shows each app's rule.</p>
+        <p>Choose <b>None</b> to remove a rule.</p>
 
         <h2>Smart Keyboard Auto Switch</h2>
         <p class='lead'>Optional, and off unless you turn it on in General.</p>
@@ -993,7 +1014,7 @@ extension AppDelegate: NSTableViewDataSource, NSTableViewDelegate, NSTabViewDele
         <li>Words that aren't in any dictionary, like names, are left alone. It uses the spelling dictionaries built into macOS, plus letter
         statistics for English, Hebrew, Russian, Ukrainian, Arabic, Greek, French, German, Italian and Spanish.</li>
         <li>It stays off in code editors and terminals (VS Code, Xcode, JetBrains IDEs, Terminal, iTerm and others), where keys can be commands
-        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or with the buttons on the <b>Apps</b> tab.</li>
+        and auto-complete changes the text. Change that on the <b>Smart switch off</b> tab, or by unticking <b>Smart</b> on the <b>Apps</b> tab.</li>
         <li>macOS asks you to allow AutoLangSwitcher under System Settings &gt; Privacy &amp; Security &gt; <b>Accessibility</b>. It is needed to
         read the keys and to retype the word. After you rebuild the app, macOS may ask again: remove the old entry and allow the new one.</li>
         </ul>

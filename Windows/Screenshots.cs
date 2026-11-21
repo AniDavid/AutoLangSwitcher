@@ -21,19 +21,30 @@ partial class AutoLangSwitcherContext
     // Only what the Settings window needs: no hooks, timers or tray icon, and nothing is loaded or saved.
     AutoLangSwitcherContext(string dir)
     {
-        IntPtr en = new IntPtr(0x04090409), he = new IntPtr(0x040D040D);
+        // The installed English and Hebrew keyboards, so the menus show ticks; standard ids if one isn't installed.
+        IntPtr en = FindLayout("en"), he = FindLayout("he");
+        if (en == IntPtr.Zero) en = new IntPtr(0x04090409);
+        if (he == IntPtr.Zero) he = new IntPtr(0x040D040D);
         map["WhatsApp.exe"] = he;
         map["WINWORD.EXE"] = he;
         map["OUTLOOK.EXE"] = he;
         map["chrome.exe"] = en;
         map["Code.exe"] = en;
+        programNames["WhatsApp.exe"] = "WhatsApp";
+        programNames["WINWORD.EXE"] = "Microsoft Word";
+        programNames["OUTLOOK.EXE"] = "Microsoft Outlook";
+        programNames["chrome.exe"] = "Google Chrome";
+        programNames["Code.exe"] = "Visual Studio Code";
         foreach (string exe in DefaultOffApps) offApps.Add(exe);
         LangRule startHe = new LangRule(), lockEn = new LangRule();
-        startHe.Hkl = he;
-        lockEn.Lock = true;
-        lockEn.Hkl = en;
+        startHe.Start = he;
+        lockEn.Lock = en;
         rules["WhatsApp.exe"] = startHe;
         rules["Code.exe"] = lockEn;
+        LangRule both = new LangRule();
+        both.Start = he;
+        both.Lock = en;
+        rules["OUTLOOK.EXE"] = both;
         smartOn = true;   // so the General tab shows its options enabled
         tray.Icon = normalIcon;
 
@@ -62,32 +73,47 @@ partial class AutoLangSwitcherContext
         form.TopMost = true;
         form.Activate();
 
-        // The Language rule menu, open on WhatsApp with Start in > Hebrew highlighted.
+        // The Start in dropdown, open on Microsoft Word.
         tabs.SelectedIndex = 0;
-        ListView list = (ListView)tabs.TabPages[0].Controls[0];
-        foreach (ListViewItem item in list.Items) item.Selected = item.Text == "WhatsApp.exe";
-        ContextMenuStrip ruleMenu = RuleMenu(new List<string>(), delegate { });
-        ruleMenu.Show(list, new Point(90, 60));   // over the list, so the menus stay inside the window
-        ToolStripMenuItem start = (ToolStripMenuItem)ruleMenu.Items[1];
-        start.Select();
-        start.ShowDropDown();
-        foreach (ToolStripItem lang in start.DropDownItems) if (lang.Text.StartsWith("Hebrew")) lang.Select();
+        DataGridView grid = (DataGridView)tabs.TabPages[0].Controls[0];
+        foreach (DataGridViewRow row in grid.Rows)
+            if ((string)row.Tag == "WINWORD.EXE")
+            {
+                grid.CurrentCell = row.Cells[2];
+                grid.BeginEdit(true);
+                ((ComboBox)grid.EditingControl).DroppedDown = true;
+            }
         Rectangle window = form.RectangleToScreen(form.ClientRectangle);
-        SaveScreen(window, Path.Combine(dir, "help-rules.png"));
-        ruleMenu.Close();
+        SaveScreen(window, form.Handle, Path.Combine(dir, "help-rules.png"));
+        grid.CancelEdit();
+        grid.EndEdit();
 
         // The tray menu (without "Restart as administrator", which only shows when not running as administrator).
         ContextMenuStrip trayMenu = MakeTrayMenu(false);
         trayMenu.Show(window.Left + 40, window.Top + 40);
         trayMenu.Items[1].Select();   // Help
-        SaveScreen(trayMenu.Bounds, Path.Combine(dir, "help-tray.png"));
+        SaveScreen(trayMenu.Bounds, trayMenu.Handle, Path.Combine(dir, "help-tray.png"));
         trayMenu.Close();
         // The form is left open (the process exits next), so closing it can't save anything.
     }
 
-    static void SaveScreen(Rectangle r, string file)
+    // Saves what is on the screen at r, but only once the window `owner` is really the one there (checked at three
+    // corners); otherwise another program's window would end up in the picture, so nothing is saved.
+    static void SaveScreen(Rectangle r, IntPtr owner, string file)
     {
-        for (int i = 0; i < 10; i++) { Application.DoEvents(); System.Threading.Thread.Sleep(50); }   // let the menus draw
+        Point[] corners = { new Point(r.Left + 4, r.Top + 4), new Point(r.Left + 4, r.Bottom - 4), new Point(r.Right - 4, r.Bottom - 4) };
+        bool onTop = false;
+        for (int i = 0; i < 40 && !onTop; i++)
+        {
+            Application.DoEvents();
+            System.Threading.Thread.Sleep(50);   // let the menus draw
+            onTop = i >= 10 && Array.TrueForAll(corners, delegate(Point p) { return Win32.RootOf(Win32.WindowFromPoint(p)) == owner; });
+        }
+        if (!onTop)
+        {
+            Environment.ExitCode = 3;   // the picture is left as it was
+            return;
+        }
         using (Bitmap b = new Bitmap(r.Width, r.Height))
         {
             using (Graphics g = Graphics.FromImage(b)) g.CopyFromScreen(r.Location, Point.Empty, r.Size);
